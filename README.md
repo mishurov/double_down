@@ -1,4 +1,3 @@
-Double Down
-=====
-Cypress i2c touchpad driver fork to add more features.
-Now added "right click with two finger tap" feature.
+## Double Down
+Cypress i2c touchpad driver (cyapa kernel module) fork to add more features.
+Now added <b>right click with two finger tap</b> feature.
