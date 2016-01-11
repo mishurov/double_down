@@ -183,6 +183,9 @@ struct cyapa_softc {
 	int	finger1_ticks;
 	int	finger2_ticks;
 	int	finger3_ticks;
+	uint16_t lock_but;
+	int     lock_ticks;
+	int     drag_ticks;
 	uint16_t reported_but;
 
 	struct cyapa_fifo rfifo;	/* device->host */
@@ -265,6 +268,15 @@ static int cyapa_thumbarea_percent = 15;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_thumbarea_percent, CTLFLAG_RW,
 	    &cyapa_thumbarea_percent, 0,
 	    "Size of bottom thumb area in percent");
+
+
+static int cyapa_taplock_ticks = 7;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_taplock_ticks, CTLFLAG_RW,
+	    &cyapa_taplock_ticks, 0, "Duration for lock on second tap");
+static int cyapa_tapdrag_ticks = 12;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_ticks, CTLFLAG_RW,
+	    &cyapa_tapdrag_ticks, 0, "Duration for before button release");
+
 
 static int cyapa_debug = 0;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_debug, CTLFLAG_RW,
@@ -524,6 +536,8 @@ cyapa_attach(device_t dev)
 	sc->mode.level = 0;
 	sc->mode.packetsize = MOUSE_PS2_PACKETSIZE;
 
+	sc->lock_but = 0;
+
 	/* Setup input event tracking */
 	cyapa_set_power_mode(sc, CMD_POWER_MODE_IDLE);
 
@@ -535,6 +549,7 @@ cyapa_attach(device_t dev)
 	    UID_ROOT, GID_WHEEL, 0600, "cyapa%d", unit);
 
 	sc->devnode->si_drv1 = sc;
+
 
 	return (0);
 }
@@ -1467,7 +1482,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		sc->track_x = x;
 		sc->track_y = y;
 	}
-
+        
         /* Double Down */
 	int is_double_down = (cyapa_enable_tapclick && lessfingers &&
 	    afingers == 0 && deltafingers == 2 &&
@@ -1508,13 +1523,64 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		but = 0;
 	}
 
-	/*
+	uint16_t res_but = 0;
+
+        // lock first tap's button on second tap if in timout
+        if (sc->lock_but != 0 && sc->lock_ticks != -1) {
+            if (sc->poll_ticks - sc->lock_ticks < cyapa_taplock_ticks) {
+                sc->drag_ticks = sc->poll_ticks;
+                sc->lock_ticks = -1;
+            } else {
+                sc->lock_but = 0;
+            }
+        }
+
+        // if locked return always pressed button
+        if (sc->lock_but != 0 && sc->lock_ticks == -1) {
+            res_but = sc->lock_but;
+        }
+
+        // memorize first tap
+        if ((but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT)
+             && sc->lock_but == 0) {
+            sc->lock_but = but;
+            sc->lock_ticks = sc->poll_ticks;
+        }
+
+        // update time on movement
+        if (sc->lock_but != 0 && (sc->delta_x || sc->delta_y)) {
+            sc->drag_ticks = sc->poll_ticks;
+        }
+
+        // reset drag on any click or timeout
+        if (sc->lock_but != 0 && sc->lock_ticks == -1) {
+            if (but != 0) {
+            
+            sc->lock_but = 0;
+            sc->lock_ticks = 0;
+            res_but = but;
+            
+            } 
+            if (sc->poll_ticks - sc->drag_ticks > cyapa_tapdrag_ticks)
+            {
+            sc->lock_but = 0;
+            sc->lock_ticks = 0;
+            res_but = but;
+            }
+        }
+
+
+        // return button
+        if (res_but != 0)
+            but = res_but;
+	
+        /*
 	 * Detect state change from last reported state and
 	 * determine if we have gone idle.
 	 */
 	sc->track_but = but;
 	if (sc->delta_x || sc->delta_y || sc->delta_z ||
-	    sc->track_but != sc->reported_but) {
+	    sc->track_but != sc->reported_but || sc->lock_but != 0) {
 		sc->active_tick = ticks;
 		if (sc->remote_mode == 0 && sc->reporting_mode)
 			sc->data_signal = 1;
