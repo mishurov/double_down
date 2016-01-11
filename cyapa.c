@@ -1258,6 +1258,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	int z;
 	int newfinger;
 	int lessfingers;
+	int deltafingers;
 	int click_x;
 	int click_y;
 	uint16_t but;	/* high bits used for simulated but4/but5 */
@@ -1343,6 +1344,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	}
 	newfinger = sc->track_nfingers < afingers;
 	lessfingers = sc->track_nfingers > afingers;
+	deltafingers = sc->track_nfingers - afingers;
 	sc->track_nfingers = afingers;
 
 	/*
@@ -1466,14 +1468,22 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		sc->track_y = y;
 	}
 
+        /* Double Down */
+	int is_double_down = (cyapa_enable_tapclick && lessfingers &&
+	    afingers == 0 && deltafingers == 2 &&
+            sc->poll_ticks - sc->finger1_ticks >= cyapa_tapclick_min_ticks &&
+	    sc->poll_ticks - sc->finger1_ticks < cyapa_tapclick_max_ticks);
+
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
 	int is_tapclick = (cyapa_enable_tapclick && lessfingers &&
 	    afingers == 0 && sc->poll_ticks - sc->finger1_ticks
 	    >= cyapa_tapclick_min_ticks &&
 	    sc->poll_ticks - sc->finger1_ticks < cyapa_tapclick_max_ticks);
 
-	if (regs->fngr & CYAPA_FNGR_LEFT || is_tapclick) {
-		if (sc->track_but) {
+	if (regs->fngr & CYAPA_FNGR_LEFT || is_tapclick || is_double_down ) {
+		if (is_double_down) {
+			but = CYAPA_FNGR_RIGHT;
+                } else if (sc->track_but) {
 			but = sc->track_but;
 		} else if (afingers == 1) {
 			if (click_x < sc->cap_resx * 2 / 3)
