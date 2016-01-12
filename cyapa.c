@@ -1546,8 +1546,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         if (is_wait_lock_mode && wait_lock_not_expired)
         {
             // if second touch, start drag mode and drag timout
-            if (newfinger) {
-                printf("drag start \n");
+            if ((newfinger || lessfingers) && nfingers == 1) {
                 sc->drag_ticks = sc->poll_ticks;
             }
             res_but = sc->lock_but;
@@ -1561,7 +1560,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         // and start count time
         if ((but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT)
              && sc->lock_but == 0) {
-            printf("lock weight start \n");
             sc->lock_but = but;
             sc->lock_ticks = sc->poll_ticks;
             sc->drag_ticks = -1;
@@ -1593,7 +1591,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
                 but = 0;
                 res_but = 0;
                 sc->next_but = sc->lock_but;
-                printf("must be double click\n");
             }
             sc->lock_but = 0;
             sc->drag_ticks = -1;
@@ -1605,7 +1602,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
             && !wait_lock_not_expired) {
             sc->lock_but = 0;
             sc->lock_ticks = -1;
-            printf("wait timout \n");
         }
 
         // notify about correct button
