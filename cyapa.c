@@ -270,10 +270,10 @@ SYSCTL_INT(_debug, OID_AUTO, cyapa_thumbarea_percent, CTLFLAG_RW,
 	    "Size of bottom thumb area in percent");
 
 
-static int cyapa_taplock_ticks = 7;
+static int cyapa_taplock_ticks = 14;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_taplock_ticks, CTLFLAG_RW,
 	    &cyapa_taplock_ticks, 0, "Duration for lock on second tap");
-static int cyapa_tapdrag_ticks = 12;
+static int cyapa_tapdrag_ticks = 7;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_ticks, CTLFLAG_RW,
 	    &cyapa_tapdrag_ticks, 0, "Duration for before button release");
 
@@ -1482,10 +1482,10 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		sc->track_x = x;
 		sc->track_y = y;
 	}
-        
+
         /* Double Down */
 	int is_double_down = (cyapa_enable_tapclick && lessfingers &&
-	    afingers == 0 && deltafingers == 2 &&
+	    ((afingers == 0 && deltafingers == 2) || (afingers == 1 && deltafingers == 1)) &&
             sc->poll_ticks - sc->finger1_ticks >= cyapa_tapclick_min_ticks &&
 	    sc->poll_ticks - sc->finger1_ticks < cyapa_tapclick_max_ticks);
 
@@ -1524,23 +1524,34 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	}
 
 	uint16_t res_but = 0;
+	int is_wait_lock_mode = (sc->lock_but != 0 &&
+                                 sc->lock_ticks != -1);
+	int wait_lock_not_expired = (sc->poll_ticks - sc->lock_ticks
+                                < cyapa_taplock_ticks);
+	int is_drag_mode = (sc->lock_but != 0 && 
+                            sc->lock_ticks == -1);
+	int drag_not_expired = (sc->poll_ticks - sc->drag_ticks
+                                < cyapa_tapdrag_ticks);
 
-        // lock first tap's button on second tap if in timout
-        if (sc->lock_but != 0 && sc->lock_ticks != -1) {
-            if (sc->poll_ticks - sc->lock_ticks < cyapa_taplock_ticks) {
+        // when marked button waits second tap or timeout
+        // send data that button is presse
+        if (is_wait_lock_mode && wait_lock_not_expired)
+        {
+            res_but = sc->lock_but;
+            // if second tap, start drag mode and drag timout
+            if (newfinger) {
                 sc->drag_ticks = sc->poll_ticks;
                 sc->lock_ticks = -1;
-            } else {
-                sc->lock_but = 0;
+	        //drag_start = 1;
             }
         }
-
-        // if locked return always pressed button
-        if (sc->lock_but != 0 && sc->lock_ticks == -1) {
+        // in drag mode send pressed button
+        if (is_drag_mode && drag_not_expired) {
             res_but = sc->lock_but;
         }
 
-        // memorize first tap
+        // when finger released mark button as waiting to be locked
+        // and start count time
         if ((but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT)
              && sc->lock_but == 0) {
             sc->lock_but = but;
@@ -1548,29 +1559,25 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         }
 
         // update time on movement
-        if (sc->lock_but != 0 && (sc->delta_x || sc->delta_y)) {
+        if (is_drag_mode && (sc->delta_x || sc->delta_y)) {
             sc->drag_ticks = sc->poll_ticks;
         }
 
         // reset drag on any click or timeout
-        if (sc->lock_but != 0 && sc->lock_ticks == -1) {
-            if (but != 0) {
-            
+        if (is_drag_mode && (but != 0 || !drag_not_expired)) {
             sc->lock_but = 0;
             sc->lock_ticks = 0;
-            res_but = but;
-            
-            } 
-            if (sc->poll_ticks - sc->drag_ticks > cyapa_tapdrag_ticks)
-            {
-            sc->lock_but = 0;
-            sc->lock_ticks = 0;
-            res_but = but;
-            }
+            if (but != 0)
+                res_but = but;
         }
 
+        // reset waiting of second tap on timeout
+        if (is_wait_lock_mode && !wait_lock_not_expired) {
+            sc->lock_but = 0;
+            sc->lock_ticks = 0;
+        }
 
-        // return button
+        // notify about correct button
         if (res_but != 0)
             but = res_but;
 	
