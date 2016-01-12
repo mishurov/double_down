@@ -184,6 +184,7 @@ struct cyapa_softc {
 	int	finger2_ticks;
 	int	finger3_ticks;
 	uint16_t lock_but;
+	uint16_t next_but;
 	int     lock_ticks;
 	int     drag_ticks;
 	uint16_t reported_but;
@@ -272,10 +273,13 @@ SYSCTL_INT(_debug, OID_AUTO, cyapa_thumbarea_percent, CTLFLAG_RW,
 
 static int cyapa_taplock_ticks = 14;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_taplock_ticks, CTLFLAG_RW,
-	    &cyapa_taplock_ticks, 0, "Duration for lock on second tap");
-static int cyapa_tapdrag_ticks = 7;
+	    &cyapa_taplock_ticks, 0, "Duration when second touch can lock previous button tap");
+static int cyapa_tapdrag_ticks = 10;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_ticks, CTLFLAG_RW,
-	    &cyapa_tapdrag_ticks, 0, "Duration for before button release");
+	    &cyapa_tapdrag_ticks, 0, "Duration after stop moving and send release button evt");
+static int cyapa_tapdouble_ticks = 17;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdouble_ticks, CTLFLAG_RW,
+	    &cyapa_tapdouble_ticks, 0, "Duration when second tap will send double click");
 
 
 static int cyapa_debug = 0;
@@ -537,6 +541,9 @@ cyapa_attach(device_t dev)
 	sc->mode.packetsize = MOUSE_PS2_PACKETSIZE;
 
 	sc->lock_but = 0;
+	sc->lock_ticks = -1;
+	sc->drag_ticks = -1;
+	sc->next_but = 0;
 
 	/* Setup input event tracking */
 	cyapa_set_power_mode(sc, CMD_POWER_MODE_IDLE);
@@ -1522,28 +1529,28 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	} else {
 		but = 0;
 	}
-
 	uint16_t res_but = 0;
 	int is_wait_lock_mode = (sc->lock_but != 0 &&
                                  sc->lock_ticks != -1);
 	int wait_lock_not_expired = (sc->poll_ticks - sc->lock_ticks
                                 < cyapa_taplock_ticks);
 	int is_drag_mode = (sc->lock_but != 0 && 
-                            sc->lock_ticks == -1);
+                            sc->drag_ticks != -1);
 	int drag_not_expired = (sc->poll_ticks - sc->drag_ticks
                                 < cyapa_tapdrag_ticks);
+	int double_not_expired = (sc->poll_ticks - sc->lock_ticks
+                                 < cyapa_tapdouble_ticks);
 
         // when marked button waits second tap or timeout
         // send data that button is presse
         if (is_wait_lock_mode && wait_lock_not_expired)
         {
-            res_but = sc->lock_but;
-            // if second tap, start drag mode and drag timout
+            // if second touch, start drag mode and drag timout
             if (newfinger) {
+                printf("drag start \n");
                 sc->drag_ticks = sc->poll_ticks;
-                sc->lock_ticks = -1;
-	        //drag_start = 1;
             }
+            res_but = sc->lock_but;
         }
         // in drag mode send pressed button
         if (is_drag_mode && drag_not_expired) {
@@ -1554,8 +1561,10 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         // and start count time
         if ((but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT)
              && sc->lock_but == 0) {
+            printf("lock weight start \n");
             sc->lock_but = but;
             sc->lock_ticks = sc->poll_ticks;
+            sc->drag_ticks = -1;
         }
 
         // update time on movement
@@ -1563,24 +1572,45 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
             sc->drag_ticks = sc->poll_ticks;
         }
 
+        // set to fire second click
+        if (sc->next_but != 0) {
+            if (sc->next_but == 100) {
+                but = 0;
+                res_but = 0;
+                sc->next_but = 0;
+            } else {
+                res_but = sc->next_but;
+                sc->next_but = 100;
+            }
+        }
+
         // reset drag on any click or timeout
         if (is_drag_mode && (but != 0 || !drag_not_expired)) {
-            sc->lock_but = 0;
-            sc->lock_ticks = 0;
             if (but != 0)
                 res_but = but;
+            // if tap within doubleclick time set to fire second tap
+            if (but != 0 && double_not_expired) {
+                but = 0;
+                res_but = 0;
+                sc->next_but = sc->lock_but;
+                printf("must be double click\n");
+            }
+            sc->lock_but = 0;
+            sc->drag_ticks = -1;
+            sc->lock_ticks = -1;
         }
 
         // reset waiting of second tap on timeout
-        if (is_wait_lock_mode && !wait_lock_not_expired) {
+        if (!is_drag_mode && is_wait_lock_mode 
+            && !wait_lock_not_expired) {
             sc->lock_but = 0;
-            sc->lock_ticks = 0;
+            sc->lock_ticks = -1;
+            printf("wait timout \n");
         }
 
         // notify about correct button
         if (res_but != 0)
             but = res_but;
-	
         /*
 	 * Detect state change from last reported state and
 	 * determine if we have gone idle.
