@@ -277,7 +277,7 @@ SYSCTL_INT(_debug, OID_AUTO, cyapa_taplock_ticks, CTLFLAG_RW,
 static int cyapa_tapdrag_ticks = 10;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_ticks, CTLFLAG_RW,
 	    &cyapa_tapdrag_ticks, 0, "Duration after stop moving and send release button evt");
-static int cyapa_tapdouble_ticks = 17;
+static int cyapa_tapdouble_ticks = 30;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdouble_ticks, CTLFLAG_RW,
 	    &cyapa_tapdouble_ticks, 0, "Duration when second tap will send double click");
 
