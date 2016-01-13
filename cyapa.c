@@ -1491,7 +1491,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	}
 
         /* Double Down */
-	int is_double_down = (cyapa_enable_tapclick && lessfingers &&
+	int is_double_down = (cyapa_enable_tapclick && sc->track_z == -1 && lessfingers &&
 	    ((afingers == 0 && deltafingers == 2) || (afingers == 1 && deltafingers == 1)) &&
             sc->poll_ticks - sc->finger1_ticks >= cyapa_tapclick_min_ticks &&
 	    sc->poll_ticks - sc->finger1_ticks < cyapa_tapclick_max_ticks);
@@ -1546,7 +1546,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         if (is_wait_lock_mode && wait_lock_not_expired)
         {
             // if second touch, start drag mode and drag timout
-            if ((newfinger || lessfingers) && nfingers == 1) {
+            if (newfinger && sc->track_z == -1) {
                 sc->drag_ticks = sc->poll_ticks;
             }
             res_but = sc->lock_but;
@@ -1559,7 +1559,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         // when finger released mark button as waiting to be locked
         // and start count time
         if ((but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT)
-             && sc->lock_but == 0) {
+             && sc->lock_but == 0 && sc->track_z == -1) {
             sc->lock_but = but;
             sc->lock_ticks = sc->poll_ticks;
             sc->drag_ticks = -1;
