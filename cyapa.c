@@ -1546,7 +1546,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         if (is_wait_lock_mode && wait_lock_not_expired)
         {
             // if second touch, start drag mode and drag timout
-            if (newfinger && sc->track_z == -1) {
+            if (newfinger && (deltafingers == -afingers) &&
+                sc->track_z == -1) {
                 sc->drag_ticks = sc->poll_ticks;
             }
             res_but = sc->lock_but;
