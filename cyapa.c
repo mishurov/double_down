@@ -187,6 +187,7 @@ struct cyapa_softc {
 	uint16_t next_but;
 	int     lock_ticks;
 	int     drag_ticks;
+	int     rmb_ticks;
 	uint16_t reported_but;
 
 	struct cyapa_fifo rfifo;	/* device->host */
@@ -280,6 +281,9 @@ SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_ticks, CTLFLAG_RW,
 static int cyapa_tapdouble_ticks = 30;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdouble_ticks, CTLFLAG_RW,
 	    &cyapa_tapdouble_ticks, 0, "Duration when second tap will send double click");
+static int cyapa_taprmb_ticks = 8;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_taprmb_ticks, CTLFLAG_RW,
+	    &cyapa_taprmb_ticks, 0, "Duration when touches will be trated as rightclick");
 
 
 static int cyapa_debug = 0;
@@ -543,6 +547,7 @@ cyapa_attach(device_t dev)
 	sc->lock_but = 0;
 	sc->lock_ticks = -1;
 	sc->drag_ticks = -1;
+	sc->rmb_ticks = -1;
 	sc->next_but = 0;
 
 	/* Setup input event tracking */
@@ -1491,10 +1496,21 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	}
 
         /* Double Down */
-	int is_double_down = (cyapa_enable_tapclick && sc->track_z == -1 && lessfingers &&
-	    ((afingers == 0 && deltafingers == 2) || (afingers == 1 && deltafingers == 1)) &&
-            sc->poll_ticks - sc->finger1_ticks >= cyapa_tapclick_min_ticks &&
-	    sc->poll_ticks - sc->finger1_ticks < cyapa_tapclick_max_ticks);
+        int is_double_down = 0;
+        if (cyapa_enable_tapclick && sc->track_z == -1) {
+            if (sc->rmb_ticks != -1) {
+                if (sc->poll_ticks - sc->rmb_ticks > cyapa_taprmb_ticks) {
+                    sc->rmb_ticks = -1;
+                } else if (newfinger) {
+                    sc->rmb_ticks = -1;
+                } else if (lessfingers && afingers == 0) {
+                    is_double_down = 1;
+                    sc->rmb_ticks = -1;
+                }
+            }
+            if (newfinger && afingers == 2)
+                sc->rmb_ticks = sc->poll_ticks;
+        }
 
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
 	int is_tapclick = (cyapa_enable_tapclick && lessfingers &&
