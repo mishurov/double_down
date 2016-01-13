@@ -1597,6 +1597,16 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
             sc->lock_ticks = -1;
         }
 
+        // reset drag and lock mode on scroll
+        if ((is_drag_mode || is_wait_lock_mode) 
+            && sc->track_z != -1) {
+            but = 0;
+            res_but = 0;
+            sc->lock_but = 0;
+            sc->drag_ticks = -1;
+            sc->lock_ticks = -1;
+        }
+
         // reset waiting of second tap on timeout
         if (!is_drag_mode && is_wait_lock_mode 
             && !wait_lock_not_expired) {
