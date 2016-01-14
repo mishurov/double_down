@@ -1500,7 +1500,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
             if (is_movement)
                 sc->rmb_ticks = -1;
 
-            if (!is_movement && sc->rmb_ticks != -1) {
+            if (!is_movement && sc->track_z == -1 
+                && sc->rmb_ticks != -1) {
                 if (sc->poll_ticks - sc->rmb_ticks > cyapa_tapclick_max_ticks)
                     sc->rmb_ticks = -1;
                 else if (newfinger)
@@ -1512,7 +1513,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
                          sc->rmb_ticks = -1;
                 }
             }
-            if (!is_movement && newfinger &&
+            if (!is_movement && sc->track_z == -1 && newfinger &&
                 afingers == 2 && sc->rmb_ticks == -1)
                 sc->rmb_ticks = sc->poll_ticks;
         }
