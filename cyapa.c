@@ -1503,8 +1503,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
                     sc->rmb_ticks = -1;
                 } else if (newfinger) {
                     sc->rmb_ticks = -1;
-                } else if (lessfingers && afingers == 0 && 
-                    sc->poll_ticks - sc->rmb_ticks >= cyapa_tapclick_min_ticks) {
+                } else if (lessfingers && afingers == 0 &&
+                    sc->poll_ticks - sc->rmb_ticks > cyapa_tapclick_min_ticks) {
                     is_double_down = 1;
                     sc->rmb_ticks = -1;
                 }
@@ -1562,9 +1562,9 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         // send data that button is presse
         if (is_wait_lock_mode && wait_lock_not_expired)
         {
-            // if second touch, start drag mode and drag timout
-            if (newfinger && (deltafingers == -afingers) &&
-                sc->track_z == -1) {
+            // if second touch (1 finger do not mess with scroll), 
+            // start drag mode and drag timout
+            if (newfinger && afingers == 1 && sc->track_z == -1) {
                 sc->drag_ticks = sc->poll_ticks;
             }
             res_but = sc->lock_but;
