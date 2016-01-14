@@ -1497,6 +1497,9 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
         int is_double_down = 0;
         if (cyapa_enable_tapclick) {
+            if (is_movement)
+                sc->rmb_ticks = -1;
+
             if (!is_movement && sc->rmb_ticks != -1) {
                 if (sc->poll_ticks - sc->rmb_ticks > cyapa_tapclick_max_ticks)
                     sc->rmb_ticks = -1;
@@ -1512,9 +1515,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
             if (!is_movement && newfinger &&
                 afingers == 2 && sc->rmb_ticks == -1)
                 sc->rmb_ticks = sc->poll_ticks;
-
-            if (is_movement && sc->rmb_ticks != -1)
-                sc->rmb_ticks = -1;
         }
 
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
