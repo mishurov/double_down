@@ -1439,7 +1439,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		sc->track_z_ticks = 0;
 	}
        
-        int scroll_mode = 0;
 	/* Initiate two finger scrolling */
 	if (!(regs->fngr & CYAPA_FNGR_LEFT) &&
 	    ((afingers && sc->track_z != -1) ||
@@ -1457,7 +1456,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			    sc->touch_z = z;	/* not used atm */
 			sc->track_z = z / ZSCALE;
 			sc->track_z_ticks = sc->poll_ticks;
-                        scroll_mode = 1;
 		}
 	} else if (afingers) {
 		/* Normal pad position reporting */
@@ -1496,9 +1494,10 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	}
 
         /* Double Down */
+        int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
         int is_double_down = 0;
         if (cyapa_enable_tapclick) {
-            if (sc->delta_z == 0 && sc->rmb_ticks != -1) {
+            if (!is_movement && sc->rmb_ticks != -1) {
                 if (sc->poll_ticks - sc->rmb_ticks > cyapa_tapclick_max_ticks)
                     sc->rmb_ticks = -1;
                 else if (newfinger)
@@ -1510,11 +1509,11 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
                          sc->rmb_ticks = -1;
                 }
             }
-            if (sc->delta_z == 0 && newfinger &&
+            if (!is_movement && newfinger &&
                 afingers == 2 && sc->rmb_ticks == -1)
                 sc->rmb_ticks = sc->poll_ticks;
 
-            if (sc->delta_z != 0 && sc->rmb_ticks != -1)
+            if (is_movement && sc->rmb_ticks != -1)
                 sc->rmb_ticks = -1;
         }
 
@@ -1565,7 +1564,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 
         // when marked button waits second tap or timeout
         // send data that button is presse
-        if (!scroll_mode && is_wait_lock_mode && wait_lock_not_expired)
+        if (sc->delta_z == 0 && is_wait_lock_mode
+            && wait_lock_not_expired)
         {
             // if second touch (1 finger do not mess with scroll), 
             // start drag mode and drag timout
@@ -1582,7 +1582,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         // when finger released mark button as waiting to be locked
         // and start count time
         if ((but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT)
-            && !scroll_mode && sc->lock_but == 0) {
+            && !is_movement && sc->lock_but == 0) {
             sc->lock_but = but;
             sc->lock_ticks = sc->poll_ticks;
             sc->drag_ticks = -1;
@@ -1621,8 +1621,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         }
 
         // reset drag and lock mode on scroll
-        if ((is_drag_mode || is_wait_lock_mode)
-            && scroll_mode) {
+        if (sc->delta_z != 0 &&
+            (is_drag_mode || is_wait_lock_mode)) {
             but = 0;
             res_but = 0;
             sc->lock_but = 0;
@@ -1645,7 +1645,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	 * determine if we have gone idle.
 	 */
 	sc->track_but = but;
-	if (sc->delta_x || sc->delta_y || sc->delta_z ||
+	if (is_movement ||
 	    sc->track_but != sc->reported_but || sc->lock_but != 0) {
 		sc->active_tick = ticks;
 		if (sc->remote_mode == 0 && sc->reporting_mode)
