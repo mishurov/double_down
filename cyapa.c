@@ -1438,7 +1438,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		sc->track_z = -1;
 		sc->track_z_ticks = 0;
 	}
-       
+
 	/* Initiate two finger scrolling */
 	if (!(regs->fngr & CYAPA_FNGR_LEFT) &&
 	    ((afingers && sc->track_z != -1) ||
@@ -1496,19 +1496,24 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         /* Double Down */
         int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
         int is_double_down = 0;
+        int was_reset = 0;
         if (cyapa_enable_tapclick) {
             if (sc->rmb_ticks != -1 && (is_movement || newfinger
-                || sc->poll_ticks - sc->rmb_ticks > cyapa_tapclick_max_ticks))
+                || sc->poll_ticks - sc->rmb_ticks > cyapa_tapclick_max_ticks)) {
                 sc->rmb_ticks = -1;
-
-            if (sc->rmb_ticks != -1 && !is_movement && sc->track_z == -1
+                was_reset = 1;
+            }
+            if (sc->rmb_ticks != -1
+                && !is_movement && sc->track_z == -1
                 && sc->poll_ticks - sc->rmb_ticks <= cyapa_tapclick_max_ticks
                 && sc->poll_ticks - sc->rmb_ticks > cyapa_tapclick_min_ticks
                 && lessfingers && afingers == 0) {
                          is_double_down = 1;
                          sc->rmb_ticks = -1;
+                         was_reset = 1;
             }
-            if (sc->rmb_ticks == -1 && !is_movement && sc->track_z == -1 
+            if (!was_reset && sc->rmb_ticks == -1
+                && !is_movement && sc->track_z == -1
                 && newfinger && afingers == 2)
                 sc->rmb_ticks = sc->poll_ticks;
         }
