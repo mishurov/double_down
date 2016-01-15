@@ -1497,18 +1497,15 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
         int is_double_down = 0;
         if (cyapa_enable_tapclick) {
-            if (is_movement)
+            if (sc->rmb_ticks != -1 && (is_movement || newfinger))
                 sc->rmb_ticks = -1;
 
-            if (!is_movement && sc->track_z == -1 
+            if (!is_movement && sc->track_z == -1
                 && sc->rmb_ticks != -1) {
                 if (sc->poll_ticks - sc->rmb_ticks > cyapa_tapclick_max_ticks)
                     sc->rmb_ticks = -1;
-                else if (newfinger)
-                    sc->rmb_ticks = -1;
                 else if (lessfingers && afingers == 0 &&
-                         sc->poll_ticks - sc->rmb_ticks > 
-                         cyapa_tapclick_min_ticks) {
+                         sc->poll_ticks - sc->rmb_ticks > cyapa_tapclick_min_ticks) {
                          is_double_down = 1;
                          sc->rmb_ticks = -1;
                 }
