@@ -2,6 +2,7 @@
 # BSDSRCDIR=./freebsd-base-graphics
 # KMODDIR=./freebsd-base-graphics/share/mk
 # SYSDIR=${BSDSRCDIR}/sys
+# share/man/man4/cyapa.4
 
 KMOD=	cyapa
 
