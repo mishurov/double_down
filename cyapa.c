@@ -185,11 +185,10 @@ struct cyapa_softc {
 	int	finger3_ticks;
 	uint16_t reported_but;
 
-	int     tft_state;
-	int     tft_ticks;
-        enum  {IDLE, WAIT, DRAG, SEND} drag_state;
-	int     dragwait_ticks;
-	int     draglock_ticks;
+	int	tft_ticks;
+        enum	{IDLE, WAIT, DRAG, SEND} drag_state;
+	int	dragwait_ticks;
+	int	draglock_ticks;
 	uint16_t send_but;
 
 	struct cyapa_fifo rfifo;	/* device->host */
@@ -277,6 +276,10 @@ static int cyapa_enable_twofingertap = 0;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_enable_twofingertap, CTLFLAG_RW,
 	    &cyapa_enable_twofingertap, 0,
 	    "Enable two finger tap to right button click");
+static int cyapa_twofingertap_wait_ticks = 8;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_twofingertap_wait_ticks, CTLFLAG_RW,
+	    &cyapa_twofingertap_wait_ticks, 0,
+	    "Wait for random sequence of 0-1-2-1-0 touches");
 static int cyapa_enable_tapdrag = 0;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_enable_tapdrag, CTLFLAG_RW,
 	    &cyapa_enable_tapdrag, 0,
@@ -555,7 +558,7 @@ cyapa_attach(device_t dev)
 	sc->drag_state = IDLE;
 	sc->draglock_ticks = -1;
 	sc->dragwait_ticks = -1;
-	sc->tft_state = 0;
+	//sc->tft_state = 0;
 	sc->tft_ticks = -1;
 	sc->send_but = 0;
 
@@ -1294,7 +1297,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	int z;
 	int newfinger;
 	int lessfingers;
-	int deltafingers;
 	int click_x;
 	int click_y;
 	uint16_t but;	/* high bits used for simulated but4/but5 */
@@ -1380,7 +1382,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	}
 	newfinger = sc->track_nfingers < afingers;
 	lessfingers = sc->track_nfingers > afingers;
-	deltafingers = sc->track_nfingers - afingers;
 	sc->track_nfingers = afingers;
 
 	/*
@@ -1504,7 +1505,28 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		sc->track_y = y;
 	}
 
+        int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
         int is_double_down = 0;
+
+        if (sc->tft_ticks != -1) {
+            if (is_movement || newfinger ||
+                sc->poll_ticks - sc->tft_ticks 
+                > cyapa_twofingertap_wait_ticks) {
+                sc->tft_ticks = -1;
+            } else if (sc->track_z == -1 &&
+                       lessfingers && afingers == 0
+                       && sc->poll_ticks - sc->finger2_ticks
+                       >= cyapa_tapclick_min_ticks 
+                       && sc->poll_ticks - sc->finger2_ticks
+                       < cyapa_tapclick_max_ticks) {
+                is_double_down = 1;
+                sc->tft_ticks = -1;
+            }
+        } else if (!is_movement && sc->track_z == -1
+                   && newfinger && afingers == 2) {
+            sc->tft_ticks = sc->poll_ticks;
+        }
+
         /* Double Down
         int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
         int was_reset = 0;
@@ -1574,9 +1596,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         * SEND - sends double click sequence (if double click instead drag)
         *
         */
-	    // cyapa_tapdrag_wait_ticks
-	    // cyapa_tapdrag_stick_ticks
-            // cyapa_tapdrag_doubleclick_ticks
 
         // Handle double click the same way in two states
         if (sc->drag_state == SEND) {
@@ -1594,6 +1613,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
             but = 0;
         }
 
+        // Handle particular states
         switch(sc->drag_state) {
             case IDLE:
                 if (but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT) {
@@ -1638,108 +1658,11 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         }
 
         /*
-
-	uint16_t res_but = 0;
-	int is_wait_lock_mode = (sc->lock_but != 0 &&
-                                 sc->lock_ticks != -1);
-	int wait_lock_not_expired = (sc->poll_ticks - sc->lock_ticks
-                                < cyapa_taplock_ticks);
-	int is_drag_mode = (sc->lock_but != 0 && 
-                            sc->drag_ticks != -1);
-	int drag_not_expired = (sc->poll_ticks - sc->drag_ticks
-                                < cyapa_tapdrag_ticks);
-	int double_not_expired = (sc->poll_ticks - sc->lock_ticks
-                                 < cyapa_tapdouble_ticks);
-
-
-
-        // when marked button waits second tap or timeout
-        // send data that button is presse
-        if (sc->delta_z == 0 && is_wait_lock_mode
-            && wait_lock_not_expired)
-        {
-            // if second touch (1 finger do not mess with scroll), 
-            // start drag mode and drag timout
-            if (newfinger && afingers == 1) {
-                sc->drag_ticks = sc->poll_ticks;
-            }
-            res_but = sc->lock_but;
-        }
-        // in drag mode send pressed button
-        if (is_drag_mode && drag_not_expired) {
-            res_but = sc->lock_but;
-        }
-
-        // when finger released mark button as waiting to be locked
-        // and start count time
-        if ((but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT)
-            && !is_movement && sc->lock_but == 0) {
-            sc->lock_but = but;
-            sc->lock_ticks = sc->poll_ticks;
-            sc->drag_ticks = -1;
-        }
-
-        // update time on movement
-        if (is_drag_mode && (sc->delta_x || sc->delta_y)) {
-            sc->drag_ticks = sc->poll_ticks;
-        }
-
-        // set to fire second click
-        if (sc->next_but != 0) {
-            if (sc->next_but == 100) {
-                but = 0;
-                res_but = 0;
-                sc->next_but = 0;
-            } else {
-                res_but = sc->next_but;
-                sc->next_but = 100;
-            }
-        }
-
-        // reset drag on any click or timeout
-        if (is_drag_mode && (but != 0 || !drag_not_expired)) {
-            if (but != 0)
-                res_but = but;
-            // if tap within doubleclick time set to fire second tap
-            if (but != 0 && double_not_expired) {
-                but = 0;
-                res_but = 0;
-                sc->next_but = sc->lock_but;
-            }
-            sc->lock_but = 0;
-            sc->drag_ticks = -1;
-            sc->lock_ticks = -1;
-        }
-
-        // reset drag and lock mode on scroll
-        if (sc->delta_z != 0 &&
-            (is_drag_mode || is_wait_lock_mode)) {
-            but = 0;
-            res_but = 0;
-            sc->lock_but = 0;
-            sc->drag_ticks = -1;
-            sc->lock_ticks = -1;
-        }
-
-        // reset waiting of second tap on timeout
-        if (!is_drag_mode && is_wait_lock_mode 
-            && !wait_lock_not_expired) {
-            sc->lock_but = 0;
-            sc->lock_ticks = -1;
-        }
-
-        // notify about correct button
-        if (res_but != 0)
-            but = res_but;
-        */
-
-
-        /*
 	 * Detect state change from last reported state and
 	 * determine if we have gone idle.
 	 */
 	sc->track_but = but;
-	if (sc->delta_z || sc->delta_y || sc->delta_x ||
+	if (is_movement ||
 	    sc->track_but != sc->reported_but || sc->send_but != 0) {
 		sc->active_tick = ticks;
 		if (sc->remote_mode == 0 && sc->reporting_mode)
