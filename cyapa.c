@@ -187,8 +187,9 @@ struct cyapa_softc {
 
 	int     tft_state;
 	int     tft_ticks;
-	int     drag_state;
-	int     drag_ticks;
+        enum  {IDLE, WAIT, DRAG, SEND} drag_state;
+	int     dragwait_ticks;
+	int     draglock_ticks;
 	uint16_t send_but;
 
 	struct cyapa_fifo rfifo;	/* device->host */
@@ -551,9 +552,10 @@ cyapa_attach(device_t dev)
 	sc->mode.level = 0;
 	sc->mode.packetsize = MOUSE_PS2_PACKETSIZE;
 
-	sc->drag_state = 0;
+	sc->drag_state = IDLE;
+	sc->draglock_ticks = -1;
+	sc->dragwait_ticks = -1;
 	sc->tft_state = 0;
-	sc->drag_ticks = -1;
 	sc->tft_ticks = -1;
 	sc->send_but = 0;
 
@@ -1502,9 +1504,9 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		sc->track_y = y;
 	}
 
+        int is_double_down = 0;
         /* Double Down
         int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
-        int is_double_down = 0;
         int was_reset = 0;
         if (cyapa_enable_tapclick) {
             if (sc->rmb_ticks != -1 && (is_movement || newfinger
@@ -1562,12 +1564,80 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		but = 0;
 	}
 
-        
+       /* Drag n Lock */
 
+       /*
+        * Finit-state machine states (drag_state):
+        * IDLE - idle mode, waits any event
+        * WAIT - locks button and waits for second tap
+        * DRAG - locks button and drags
+        * SEND - sends double click sequence (if double click instead drag)
+        *
+        */
+	    // cyapa_tapdrag_wait_ticks
+	    // cyapa_tapdrag_stick_ticks
+            // cyapa_tapdrag_doubleclick_ticks
 
+        // Handle double click the same way in two states
+        if (sc->drag_state == SEND) {
+            but = sc->send_but;
+            sc->send_but = 0;
+        }
+        if ((sc->drag_state == WAIT || sc->drag_state == DRAG)
+             && (sc->poll_ticks - sc->dragwait_ticks
+                 <= cyapa_tapdrag_doubleclick_ticks
+                 && but != 0)) {
+            sc->draglock_ticks = -1;
+            sc->dragwait_ticks = -1;
+            sc->send_but = but;
+            sc->drag_state = SEND;
+            but = 0;
+        }
 
+        switch(sc->drag_state) {
+            case IDLE:
+                if (but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT) {
+                    sc->send_but = but;
+                    sc->dragwait_ticks = sc->poll_ticks;
+                    sc->drag_state = WAIT;
+                }
+                break;
+            case WAIT:
+                if (sc->poll_ticks - sc->dragwait_ticks
+                    > cyapa_tapdrag_wait_ticks 
+                    || sc->delta_z != 0) {
+                    sc->dragwait_ticks = -1;
+                    sc->send_but = 0;
+                    sc->drag_state = IDLE;
+                } else if (newfinger && afingers == 1) {
+                    sc->draglock_ticks = sc->poll_ticks;
+                    sc->drag_state = DRAG;
+                    but = sc->send_but;
+                } else {
+                    but = sc->send_but;
+                }
+                break;
+            case DRAG:
+                if (sc->poll_ticks - sc->draglock_ticks
+                    > cyapa_tapdrag_stick_ticks
+                    || afingers != 1 || sc->delta_z != 0) {
+                    sc->dragwait_ticks = -1;
+                    sc->draglock_ticks = -1;
+                    sc->send_but = 0;
+                    sc->drag_state = IDLE;
+                } else {
+                    if (sc->delta_x || sc->delta_y)
+                        sc->draglock_ticks = sc->poll_ticks;
+                    but = sc->send_but;
+                }
+                break;
+            case SEND:
+                if (sc->send_but == 0)
+                    sc->drag_state = IDLE;
+                break;
+        }
 
-
+        /*
 
 	uint16_t res_but = 0;
 	int is_wait_lock_mode = (sc->lock_but != 0 &&
@@ -1583,7 +1653,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 
 
 
-        /*
         // when marked button waits second tap or timeout
         // send data that button is presse
         if (sc->delta_z == 0 && is_wait_lock_mode
@@ -1670,8 +1739,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	 * determine if we have gone idle.
 	 */
 	sc->track_but = but;
-	if (is_movement ||
-	    sc->track_but != sc->reported_but || sc->lock_but != 0) {
+	if (sc->delta_z || sc->delta_y || sc->delta_x ||
+	    sc->track_but != sc->reported_but || sc->send_but != 0) {
 		sc->active_tick = ticks;
 		if (sc->remote_mode == 0 && sc->reporting_mode)
 			sc->data_signal = 1;
