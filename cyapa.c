@@ -183,12 +183,13 @@ struct cyapa_softc {
 	int	finger1_ticks;
 	int	finger2_ticks;
 	int	finger3_ticks;
-	uint16_t lock_but;
-	uint16_t next_but;
-	int     lock_ticks;
-	int     drag_ticks;
-	int     rmb_ticks;
 	uint16_t reported_but;
+
+	int     tft_state;
+	int     tft_ticks;
+	int     drag_state;
+	int     drag_ticks;
+	uint16_t send_but;
 
 	struct cyapa_fifo rfifo;	/* device->host */
 	struct cyapa_fifo wfifo;	/* host->device */
@@ -271,18 +272,26 @@ SYSCTL_INT(_debug, OID_AUTO, cyapa_thumbarea_percent, CTLFLAG_RW,
 	    &cyapa_thumbarea_percent, 0,
 	    "Size of bottom thumb area in percent");
 
-
-static int cyapa_taplock_ticks = 14;
-SYSCTL_INT(_debug, OID_AUTO, cyapa_taplock_ticks, CTLFLAG_RW,
-	    &cyapa_taplock_ticks, 0, "Duration when second touch can lock previous button tap");
-static int cyapa_tapdrag_ticks = 10;
-SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_ticks, CTLFLAG_RW,
-	    &cyapa_tapdrag_ticks, 0, "Duration after stop moving and send release button evt");
-static int cyapa_tapdouble_ticks = 30;
-SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdouble_ticks, CTLFLAG_RW,
-	    &cyapa_tapdouble_ticks, 0, "Duration when second tap will send double click");
-
-
+static int cyapa_enable_twofingertap = 0;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_enable_twofingertap, CTLFLAG_RW,
+	    &cyapa_enable_twofingertap, 0,
+	    "Enable two finger tap to right button click");
+static int cyapa_enable_tapdrag = 0;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_enable_tapdrag, CTLFLAG_RW,
+	    &cyapa_enable_tapdrag, 0,
+	    "Enable tap'n'drag guesture");
+static int cyapa_tapdrag_wait_ticks = 15;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_wait_ticks, CTLFLAG_RW,
+	    &cyapa_tapdrag_wait_ticks, 0,
+	    "Lock button and wait if it'll be a second tap to lock for drag");
+static int cyapa_tapdrag_stick_ticks = 20;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_stick_ticks, CTLFLAG_RW,
+	    &cyapa_tapdrag_stick_ticks, 0,
+	    "Time to keep button locked after stopped moving while drag");
+static int cyapa_tapdrag_doubleclick_ticks = 30;
+SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_doubleclick_ticks, CTLFLAG_RW,
+	    &cyapa_tapdrag_doubleclick_ticks, 0,
+	    "Duration when second finger release can send double click");
 
 static int cyapa_debug = 0;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_debug, CTLFLAG_RW,
@@ -542,11 +551,11 @@ cyapa_attach(device_t dev)
 	sc->mode.level = 0;
 	sc->mode.packetsize = MOUSE_PS2_PACKETSIZE;
 
-	sc->lock_but = 0;
-	sc->lock_ticks = -1;
+	sc->drag_state = 0;
+	sc->tft_state = 0;
 	sc->drag_ticks = -1;
-	sc->rmb_ticks = -1;
-	sc->next_but = 0;
+	sc->tft_ticks = -1;
+	sc->send_but = 0;
 
 	/* Setup input event tracking */
 	cyapa_set_power_mode(sc, CMD_POWER_MODE_IDLE);
@@ -1493,7 +1502,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		sc->track_y = y;
 	}
 
-        /* Double Down */
+        /* Double Down
         int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
         int is_double_down = 0;
         int was_reset = 0;
@@ -1517,6 +1526,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
                 && newfinger && afingers == 2)
                 sc->rmb_ticks = sc->poll_ticks;
         }
+        */
 
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
 	int is_tapclick = (cyapa_enable_tapclick && lessfingers &&
@@ -1551,6 +1561,14 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	} else {
 		but = 0;
 	}
+
+        
+
+
+
+
+
+
 	uint16_t res_but = 0;
 	int is_wait_lock_mode = (sc->lock_but != 0 &&
                                  sc->lock_ticks != -1);
@@ -1563,6 +1581,9 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	int double_not_expired = (sc->poll_ticks - sc->lock_ticks
                                  < cyapa_tapdouble_ticks);
 
+
+
+        /*
         // when marked button waits second tap or timeout
         // send data that button is presse
         if (sc->delta_z == 0 && is_wait_lock_mode
@@ -1641,6 +1662,9 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         // notify about correct button
         if (res_but != 0)
             but = res_but;
+        */
+
+
         /*
 	 * Detect state change from last reported state and
 	 * determine if we have gone idle.
