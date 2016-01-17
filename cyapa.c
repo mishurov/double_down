@@ -1444,13 +1444,11 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		}
 	}
 
-        int scroll_just_expired = 0;
 	/* Two finger scrolling - reset after timeout */
 	if (sc->track_z != -1 && afingers != 2 &&
 	    (sc->poll_ticks - sc->track_z_ticks) > cyapa_scroll_stick_ticks) {
 		sc->track_z = -1;
 		sc->track_z_ticks = 0;
-                scroll_just_expired = 1;
 	}
 
 	/* Initiate two finger scrolling */
@@ -1527,8 +1525,9 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
                     sc->poll_ticks - sc->tft_ticks 
                     > cyapa_twofingertap_wait_ticks) {
                     sc->tft_ticks = -1;
-                } else if (sc->track_z == -1
-                           && scroll_just_expired != 1
+                } else if (sc->track_z == -1 
+                           && sc->track_x == -1
+                           && sc->track_y == -1
                            && lessfingers && afingers == 0
                            && sc->poll_ticks - sc->finger2_ticks
                            >= cyapa_tapclick_min_ticks 
@@ -1538,7 +1537,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
                     sc->tft_ticks = -1;
                 }
             } else if (!is_movement && sc->track_z == -1
-                       && scroll_just_expired != 1
                        && newfinger && afingers == 2) {
                 sc->tft_ticks = sc->poll_ticks;
             }
