@@ -1589,11 +1589,11 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		but = 0;
 	}
 
-	/* 
+	/*
 	 * Drag n Lock
 	 * Finit-state machine states (sc->drag_state):
 	 * IDLE - idle mode, waits any event
-	 * WAIT - locks button and waits for second tap
+	 * WAIT - locks button and waits for second tap / release if timeout
 	 * DRAG - locks button and drags
 	 * SEND - sends double click sequence (if double click instead drag)
 	 */
