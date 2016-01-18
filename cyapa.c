@@ -1640,14 +1640,15 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			break;
 		case D_DRAG:
 			if (sc->poll_ticks - sc->draglock_ticks >
-			    cyapa_tapdrag_stick_ticks || afingers != 1 ||
+			    cyapa_tapdrag_stick_ticks || deltafingers < 0 ||
 			    sc->delta_z != 0) {
 				sc->dragwait_ticks = -1;
 				sc->draglock_ticks = -1;
 				sc->send_but = 0;
 				sc->drag_state = D_IDLE;
-			} else if (sc->delta_x || sc->delta_y) {
-				sc->draglock_ticks = sc->poll_ticks;
+			} else {
+				if (sc->delta_x || sc->delta_y)
+					sc->draglock_ticks = sc->poll_ticks;
 				but = sc->send_but;
 			}
 			break;
