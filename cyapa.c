@@ -3,7 +3,8 @@
  *
  * This code is derived from software contributed to The DragonFly Project
  * by Matthew Dillon <dillon@backplane.com> and was subsequently ported,
- * modified and enhanced for FreeBSD by Michael Gmelin <freebsd@grem.de>.
+ * modified and enhanced for FreeBSD by Michael Gmelin <freebsd@grem.de>,
+ * commonly used gestures added by Alexander Mishurov <ammishurov@gmail.com>.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -88,6 +89,11 @@ __FBSDID("$FreeBSD$");
  *                          lower right corner will issue a RIGHT button
  *                          event. Optional tap support can be enabled
  *                          and configured using sysctl.
+ *
+ * Two finger tap         - Use two fingers tap for right click.
+ *
+ * Tap and drag           - Drag through short touching and holding
+ *                          down the finger on the touchpad.
  *
  *                              WARNINGS
  *
