@@ -1541,8 +1541,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		    sc->tft_ticks > cyapa_twofingertap_wait_ticks) {
 			sc->tft_ticks = -1;
 			sc->tft_state = T_IDLE;
-		} else if (deltafingers == 1 && afingers == 2 &&
-		    sc->track_z == 1) {
+		} else if (deltafingers == 1 && afingers == 2) {
 			sc->tft_state = T_TWO;
 		}
 		break;
@@ -1552,7 +1551,10 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			sc->tft_ticks = -1;
 			sc->tft_state = T_IDLE;
 		} else if (deltafingers < 0 && afingers == 0 &&
-		    sc->track_z == -1) {
+		    sc->track_z == -1 && sc->poll_ticks -
+		    sc->finger2_ticks >= cyapa_tapclick_min_ticks &&
+		    sc->poll_ticks - sc->finger2_ticks <
+		    cyapa_tapclick_max_ticks) {
 			sc->tft_ticks = -1;
 			sc->tft_state = T_IDLE;
 			is_double_down = 1;
@@ -1634,12 +1636,12 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
                     break;
                 case D_WAIT:
                     if (sc->poll_ticks - sc->dragwait_ticks
-                        > cyapa_tapdrag_wait_ticks 
-                        || sc->delta_z != 0) {
+                        > cyapa_tapdrag_wait_ticks
+                        || sc->delta_z != 0 || deltafingers > 1) {
                         sc->dragwait_ticks = -1;
                         sc->send_but = 0;
                         sc->drag_state = D_IDLE;
-                    } else if (newfinger && afingers == 1) {
+                    } else if (deltafingers == 1 && afingers == 1) {
                         sc->draglock_ticks = sc->poll_ticks;
                         sc->drag_state = D_DRAG;
                         but = sc->send_but;
