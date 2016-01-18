@@ -1504,21 +1504,17 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		sc->track_y = y;
 	}
 
-        /* Double down */
-
-        /*
-         * Because it's hard every time release fingers
-         * in exact same moment, there's some time range
-         * to detect random secuence of
-         * 0-1-2-1-0 touches and treat'em as right click
-         * and make some checks to dont mess with
-         * two finger scroll
-         */
-	
-	/* TODO: use deltafingers */
+	/*
+	 * Double down
+	 *
+	 * Because it's hard every time release fingers
+	 * in exact same moment, there's some time range
+	 * to detect random secuence of 0-1-2-1-0 touches
+	 * and treat'em as right click then make some
+	 * additional checks to don't confuse with scroll
+	 */
 
 	int is_double_down = 0;
-	//int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
 
 	switch(sc->tft_state) {
 	case T_IDLE:
@@ -1559,7 +1555,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		break;
 	}
 
-
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
 	int is_tapclick = (cyapa_enable_tapclick && deltafingers == -1 &&
 	    afingers == 0 && sc->poll_ticks - sc->finger1_ticks
@@ -1594,80 +1589,76 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		but = 0;
 	}
 
-       /* Drag n Lock */
+	/* 
+	 * Drag n Lock
+	 * Finit-state machine states (sc->drag_state):
+	 * IDLE - idle mode, waits any event
+	 * WAIT - locks button and waits for second tap
+	 * DRAG - locks button and drags
+	 * SEND - sends double click sequence (if double click instead drag)
+	 */
 
-       /*
-        * Finit-state machine states (drag_state):
-        * IDLE - idle mode, waits any event
-        * WAIT - locks button and waits for second tap
-        * DRAG - locks button and drags
-        * SEND - sends double click sequence (if double click instead drag)
-        */
+	if (cyapa_enable_tapdrag) {
+		/* Handle double click the same way in two states */
+		if (sc->drag_state == D_SEND) {
+			but = sc->send_but;
+			sc->send_but = 0;
+		}
+		if ((sc->drag_state == D_WAIT || sc->drag_state == D_DRAG) &&
+		    (sc->poll_ticks - sc->dragwait_ticks <=
+		    cyapa_tapdrag_doubleclick_ticks && but != 0)) {
+			sc->draglock_ticks = -1;
+			sc->dragwait_ticks = -1;
+			sc->send_but = but;
+			sc->drag_state = D_SEND;
+			but = 0;
+		}
 
-        if (cyapa_enable_tapdrag) {
+		/* Handle particular states */
+		switch(sc->drag_state) {
+		case D_IDLE:
+			if (but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT) {
+				sc->send_but = but;
+				sc->dragwait_ticks = sc->poll_ticks;
+				sc->drag_state = D_WAIT;
+			}
+			break;
+		case D_WAIT:
+			if (sc->poll_ticks - sc->dragwait_ticks >
+			    cyapa_tapdrag_wait_ticks || sc->delta_z != 0 ||
+			    deltafingers > 1) {
+				sc->dragwait_ticks = -1;
+				sc->send_but = 0;
+				sc->drag_state = D_IDLE;
+			} else if (deltafingers == 1 && afingers == 1) {
+				sc->draglock_ticks = sc->poll_ticks;
+				sc->drag_state = D_DRAG;
+				but = sc->send_but;
+			} else {
+				but = sc->send_but;
+			}
+			break;
+		case D_DRAG:
+			if (sc->poll_ticks - sc->draglock_ticks >
+			    cyapa_tapdrag_stick_ticks || afingers != 1 ||
+			    sc->delta_z != 0) {
+				sc->dragwait_ticks = -1;
+				sc->draglock_ticks = -1;
+				sc->send_but = 0;
+				sc->drag_state = D_IDLE;
+			} else if (sc->delta_x || sc->delta_y) {
+				sc->draglock_ticks = sc->poll_ticks;
+				but = sc->send_but;
+			}
+			break;
+		case D_SEND:
+			if (sc->send_but == 0)
+				sc->drag_state = D_IDLE;
+			break;
+		}
+	}
 
-            // Handle double click the same way in two states
-            if (sc->drag_state == D_SEND) {
-                but = sc->send_but;
-                sc->send_but = 0;
-            }
-            if ((sc->drag_state == D_WAIT || sc->drag_state == D_DRAG)
-                 && (sc->poll_ticks - sc->dragwait_ticks
-                     <= cyapa_tapdrag_doubleclick_ticks
-                     && but != 0)) {
-                sc->draglock_ticks = -1;
-                sc->dragwait_ticks = -1;
-                sc->send_but = but;
-                sc->drag_state = D_SEND;
-                but = 0;
-            }
-
-            // Handle particular states
-            switch(sc->drag_state) {
-                case D_IDLE:
-                    if (but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT) {
-                        sc->send_but = but;
-                        sc->dragwait_ticks = sc->poll_ticks;
-                        sc->drag_state = D_WAIT;
-                    }
-                    break;
-                case D_WAIT:
-                    if (sc->poll_ticks - sc->dragwait_ticks
-                        > cyapa_tapdrag_wait_ticks
-                        || sc->delta_z != 0 || deltafingers > 1) {
-                        sc->dragwait_ticks = -1;
-                        sc->send_but = 0;
-                        sc->drag_state = D_IDLE;
-                    } else if (deltafingers == 1 && afingers == 1) {
-                        sc->draglock_ticks = sc->poll_ticks;
-                        sc->drag_state = D_DRAG;
-                        but = sc->send_but;
-                    } else {
-                        but = sc->send_but;
-                    }
-                    break;
-                case D_DRAG:
-                    if (sc->poll_ticks - sc->draglock_ticks
-                        > cyapa_tapdrag_stick_ticks
-                        || afingers != 1 || sc->delta_z != 0) {
-                        sc->dragwait_ticks = -1;
-                        sc->draglock_ticks = -1;
-                        sc->send_but = 0;
-                        sc->drag_state = D_IDLE;
-                    } else {
-                        if (sc->delta_x || sc->delta_y)
-                            sc->draglock_ticks = sc->poll_ticks;
-                        but = sc->send_but;
-                    }
-                    break;
-                case D_SEND:
-                    if (sc->send_but == 0)
-                        sc->drag_state = D_IDLE;
-                    break;
-            }
-        }
-
-        /*
+	/*
 	 * Detect state change from last reported state and
 	 * determine if we have gone idle.
 	 */
