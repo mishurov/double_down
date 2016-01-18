@@ -185,8 +185,9 @@ struct cyapa_softc {
 	int	finger3_ticks;
 	uint16_t reported_but;
 
+        enum	{T_IDLE, T_ONE, T_TWO} tft_state;
 	int	tft_ticks;
-        enum	{IDLE, WAIT, DRAG, SEND} drag_state;
+        enum	{D_IDLE, D_WAIT, D_DRAG, D_SEND} drag_state;
 	int	dragwait_ticks;
 	int	draglock_ticks;
 	uint16_t send_but;
@@ -555,10 +556,10 @@ cyapa_attach(device_t dev)
 	sc->mode.level = 0;
 	sc->mode.packetsize = MOUSE_PS2_PACKETSIZE;
 
-	sc->drag_state = IDLE;
+	sc->drag_state = D_IDLE;
 	sc->draglock_ticks = -1;
 	sc->dragwait_ticks = -1;
-	//sc->tft_state = 0;
+	sc->tft_state = D_IDLE;
 	sc->tft_ticks = -1;
 	sc->send_but = 0;
 
@@ -1295,6 +1296,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	int x;
 	int y;
 	int z;
+	int deltafingers;
 	int newfinger;
 	int lessfingers;
 	int click_x;
@@ -1382,6 +1384,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	}
 	newfinger = sc->track_nfingers < afingers;
 	lessfingers = sc->track_nfingers > afingers;
+	deltafingers = afingers - sc->track_nfingers;
 	sc->track_nfingers = afingers;
 
 	/*
@@ -1515,32 +1518,47 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
          * and make some checks to dont mess with
          * two finger scroll
          */
+	
+	/* TODO: use deltafingers */
 
-        int is_double_down = 0;
+	int is_double_down = 0;
+	int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
 
-        if (cyapa_enable_twofingertap) {
-            int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
-            if (sc->tft_ticks != -1) {
-                if (is_movement || newfinger ||
-                    sc->poll_ticks - sc->tft_ticks 
-                    > cyapa_twofingertap_wait_ticks) {
-                    sc->tft_ticks = -1;
-                } else if (sc->track_z == -1 
-                           && sc->track_x == -1
-                           && sc->track_y == -1
-                           && lessfingers && afingers == 0
-                           && sc->poll_ticks - sc->finger2_ticks
-                           >= cyapa_tapclick_min_ticks 
-                           && sc->poll_ticks - sc->finger2_ticks
-                           < cyapa_tapclick_max_ticks) {
-                    is_double_down = 1;
-                    sc->tft_ticks = -1;
-                }
-            } else if (!is_movement && sc->track_z == -1
-                       && newfinger && afingers == 2) {
-                sc->tft_ticks = sc->poll_ticks;
-            }
-        }
+	switch(sc->tft_state) {
+	case T_IDLE:
+		if (!is_movement && sc->track_z == -1 && deltafingers > 0) {
+			if (deltafingers == 1 && afingers == 1) {
+				sc->tft_ticks = sc->poll_ticks;
+				sc->tft_state = T_ONE;
+			} else if (deltafingers == 2 && afingers == 2) {
+				sc->tft_ticks = sc->poll_ticks;
+				sc->tft_state = T_TWO;
+			}
+		}
+		break;
+	case T_ONE:
+		if (afingers == 0 || is_movement || sc->poll_ticks -
+		    sc->tft_ticks > cyapa_twofingertap_wait_ticks ||
+		    sc->track_z != -1) {
+			sc->tft_ticks = -1;
+			sc->tft_state = T_IDLE;
+		} else if (deltafingers == 1 && afingers == 2) {
+			sc->tft_state = T_TWO;
+		}
+		break;
+	case T_TWO:
+		if (is_movement || sc->poll_ticks -
+		    sc->tft_ticks > cyapa_twofingertap_wait_ticks) {
+			sc->tft_ticks = -1;
+			sc->tft_state = T_IDLE;
+		} else if (deltafingers < 0 && afingers == 0) {
+			is_double_down = 1;
+			sc->tft_ticks = -1;
+			sc->tft_state = T_IDLE;
+		}
+		break;
+	}
+
 
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
 	int is_tapclick = (cyapa_enable_tapclick && lessfingers &&
@@ -1589,62 +1607,62 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
         if (cyapa_enable_tapdrag) {
 
             // Handle double click the same way in two states
-            if (sc->drag_state == SEND) {
+            if (sc->drag_state == D_SEND) {
                 but = sc->send_but;
                 sc->send_but = 0;
             }
-            if ((sc->drag_state == WAIT || sc->drag_state == DRAG)
+            if ((sc->drag_state == D_WAIT || sc->drag_state == D_DRAG)
                  && (sc->poll_ticks - sc->dragwait_ticks
                      <= cyapa_tapdrag_doubleclick_ticks
                      && but != 0)) {
                 sc->draglock_ticks = -1;
                 sc->dragwait_ticks = -1;
                 sc->send_but = but;
-                sc->drag_state = SEND;
+                sc->drag_state = D_SEND;
                 but = 0;
             }
 
             // Handle particular states
             switch(sc->drag_state) {
-                case IDLE:
+                case D_IDLE:
                     if (but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT) {
                         sc->send_but = but;
                         sc->dragwait_ticks = sc->poll_ticks;
-                        sc->drag_state = WAIT;
+                        sc->drag_state = D_WAIT;
                     }
                     break;
-                case WAIT:
+                case D_WAIT:
                     if (sc->poll_ticks - sc->dragwait_ticks
                         > cyapa_tapdrag_wait_ticks 
                         || sc->delta_z != 0) {
                         sc->dragwait_ticks = -1;
                         sc->send_but = 0;
-                        sc->drag_state = IDLE;
+                        sc->drag_state = D_IDLE;
                     } else if (newfinger && afingers == 1) {
                         sc->draglock_ticks = sc->poll_ticks;
-                        sc->drag_state = DRAG;
+                        sc->drag_state = D_DRAG;
                         but = sc->send_but;
                     } else {
                         but = sc->send_but;
                     }
                     break;
-                case DRAG:
+                case D_DRAG:
                     if (sc->poll_ticks - sc->draglock_ticks
                         > cyapa_tapdrag_stick_ticks
                         || afingers != 1 || sc->delta_z != 0) {
                         sc->dragwait_ticks = -1;
                         sc->draglock_ticks = -1;
                         sc->send_but = 0;
-                        sc->drag_state = IDLE;
+                        sc->drag_state = D_IDLE;
                     } else {
                         if (sc->delta_x || sc->delta_y)
                             sc->draglock_ticks = sc->poll_ticks;
                         but = sc->send_but;
                     }
                     break;
-                case SEND:
+                case D_SEND:
                     if (sc->send_but == 0)
-                        sc->drag_state = IDLE;
+                        sc->drag_state = D_IDLE;
                     break;
             }
         }
