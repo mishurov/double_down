@@ -1541,7 +1541,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		    sc->tft_ticks > cyapa_twofingertap_wait_ticks) {
 			sc->tft_ticks = -1;
 			sc->tft_state = T_IDLE;
-		} else if (deltafingers == 1 && afingers == 2) {
+		} else if (deltafingers == 1 && afingers == 2 &&
+		    sc->track_z == 1) {
 			sc->tft_state = T_TWO;
 		}
 		break;
@@ -1550,7 +1551,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		    sc->tft_ticks > cyapa_twofingertap_wait_ticks) {
 			sc->tft_ticks = -1;
 			sc->tft_state = T_IDLE;
-		} else if (deltafingers < 0 && afingers == 0) {
+		} else if (deltafingers < 0 && afingers == 0 &&
+		    sc->track_z == -1) {
 			sc->tft_ticks = -1;
 			sc->tft_state = T_IDLE;
 			is_double_down = 1;
