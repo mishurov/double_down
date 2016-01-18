@@ -1297,8 +1297,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	int y;
 	int z;
 	int deltafingers;
-	int newfinger;
-	int lessfingers;
 	int click_x;
 	int click_y;
 	uint16_t but;	/* high bits used for simulated but4/but5 */
@@ -1382,8 +1380,6 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			sc->finger3_ticks = sc->poll_ticks;
 		break;
 	}
-	newfinger = sc->track_nfingers < afingers;
-	lessfingers = sc->track_nfingers > afingers;
 	deltafingers = afingers - sc->track_nfingers;
 	sc->track_nfingers = afingers;
 
@@ -1434,15 +1430,15 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			sc->track_id = regs->touch[i].id;
 		}
 		else if ((sc->track_but ||
-		     CYAPA_TOUCH_Y(regs, i) >= thumbarea_begin) &&
-		    newfinger && afingers == 2) {
+		    CYAPA_TOUCH_Y(regs, i) >= thumbarea_begin) &&
+		    deltafingers > 0 && afingers == 2) {
 			j = regs->touch[0].id == sc->track_id ? 1 : 0;
 			if (CYAPA_TOUCH_Y(regs, j) < thumbarea_begin) {
-			    i = j;
-			    sc->track_x = -1;
-			    sc->track_y = -1;
-			    sc->track_z = -1;
-			    sc->track_id = regs->touch[i].id;
+				i = j;
+				sc->track_x = -1;
+				sc->track_y = -1;
+				sc->track_z = -1;
+				sc->track_id = regs->touch[i].id;
 			}
 		}
 	}
@@ -1522,11 +1518,11 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	/* TODO: use deltafingers */
 
 	int is_double_down = 0;
-	int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
+	//int is_movement = (sc->delta_z || sc->delta_y || sc->delta_x);
 
 	switch(sc->tft_state) {
 	case T_IDLE:
-		if (!is_movement && sc->track_z == -1 && deltafingers > 0) {
+		if (deltafingers > 0 && sc->track_z == -1 && sc->delta_z == 0) {
 			if (deltafingers == 1 && afingers == 1) {
 				sc->tft_ticks = sc->poll_ticks;
 				sc->tft_state = T_ONE;
@@ -1537,8 +1533,9 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		}
 		break;
 	case T_ONE:
-		if (afingers == 0 || is_movement || sc->poll_ticks -
-		    sc->tft_ticks > cyapa_twofingertap_wait_ticks) {
+		if (sc->poll_ticks - sc->tft_ticks >
+		    cyapa_twofingertap_wait_ticks || afingers == 0 ||
+		    sc->delta_z != 0) {
 			sc->tft_ticks = -1;
 			sc->tft_state = T_IDLE;
 		} else if (deltafingers == 1 && afingers == 2) {
@@ -1546,8 +1543,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		}
 		break;
 	case T_TWO:
-		if (is_movement || sc->poll_ticks -
-		    sc->tft_ticks > cyapa_twofingertap_wait_ticks) {
+		if (sc->poll_ticks - sc->tft_ticks >
+		    cyapa_twofingertap_wait_ticks || sc->delta_z != 0) {
 			sc->tft_ticks = -1;
 			sc->tft_state = T_IDLE;
 		} else if (deltafingers < 0 && afingers == 0 &&
@@ -1564,7 +1561,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 
 
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
-	int is_tapclick = (cyapa_enable_tapclick && lessfingers &&
+	int is_tapclick = (cyapa_enable_tapclick && deltafingers == -1 &&
 	    afingers == 0 && sc->poll_ticks - sc->finger1_ticks
 	    >= cyapa_tapclick_min_ticks &&
 	    sc->poll_ticks - sc->finger1_ticks < cyapa_tapclick_max_ticks);
