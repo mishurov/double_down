@@ -1512,53 +1512,55 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 
 	/*
 	 * Double down
-	 *
-	 * Because it's hard every time release fingers
-	 * in exact same moment, there's some time range
-	 * to detect random secuence of 0-1-2-1-0 touches
-	 * and treat'em as right click then make some
-	 * additional checks to don't confuse with scroll
+	 * Because it's hard every time touch and release fingers
+	 * in exact same moment, there's some time range to detect
+	 * random secuence of 0-1-2-1-0 touches and treat'em as
+	 * right click then make some additional checks to
+	 * don't confuse touches with two finger scroll
 	 */
 
 	int is_double_down = 0;
 
-	switch(sc->tft_state) {
-	case T_IDLE:
-		if (deltafingers > 0 && sc->track_z == -1 && sc->delta_z == 0) {
-			if (deltafingers == 1 && afingers == 1) {
-				sc->tft_ticks = sc->poll_ticks;
-				sc->tft_state = T_ONE;
-			} else if (deltafingers == 2 && afingers == 2) {
-				sc->tft_ticks = sc->poll_ticks;
+	if (cyapa_enable_twofingertap) {
+		switch(sc->tft_state) {
+		case T_IDLE:
+			if (deltafingers > 0 && sc->track_z == -1 &&
+			    sc->delta_z == 0) {
+				if (deltafingers == 1 && afingers == 1) {
+					sc->tft_ticks = sc->poll_ticks;
+					sc->tft_state = T_ONE;
+				} else if (deltafingers == 2 && afingers == 2) {
+					sc->tft_ticks = sc->poll_ticks;
+					sc->tft_state = T_TWO;
+				}
+			}
+			break;
+		case T_ONE:
+			if (sc->poll_ticks - sc->tft_ticks >
+			    cyapa_twofingertap_wait_ticks || afingers == 0 ||
+			    sc->delta_z != 0) {
+				sc->tft_ticks = -1;
+				sc->tft_state = T_IDLE;
+			} else if (deltafingers == 1 && afingers == 2) {
 				sc->tft_state = T_TWO;
 			}
+			break;
+		case T_TWO:
+			if (sc->poll_ticks - sc->tft_ticks >
+			    cyapa_twofingertap_wait_ticks || sc->delta_z != 0) {
+				sc->tft_ticks = -1;
+				sc->tft_state = T_IDLE;
+			} else if (deltafingers < 0 && afingers == 0 &&
+			    sc->track_z == -1 && sc->poll_ticks -
+			    sc->finger2_ticks >= cyapa_tapclick_min_ticks &&
+			    sc->poll_ticks - sc->finger2_ticks <
+			    cyapa_tapclick_max_ticks) {
+				sc->tft_ticks = -1;
+				sc->tft_state = T_IDLE;
+				is_double_down = 1;
+			}
+			break;
 		}
-		break;
-	case T_ONE:
-		if (sc->poll_ticks - sc->tft_ticks >
-		    cyapa_twofingertap_wait_ticks || afingers == 0 ||
-		    sc->delta_z != 0) {
-			sc->tft_ticks = -1;
-			sc->tft_state = T_IDLE;
-		} else if (deltafingers == 1 && afingers == 2) {
-			sc->tft_state = T_TWO;
-		}
-		break;
-	case T_TWO:
-		if (sc->poll_ticks - sc->tft_ticks >
-		    cyapa_twofingertap_wait_ticks || sc->delta_z != 0) {
-			sc->tft_ticks = -1;
-			sc->tft_state = T_IDLE;
-		} else if (deltafingers < 0 && afingers == 0 &&
-		    sc->track_z == -1 && sc->poll_ticks -
-		    sc->finger2_ticks >= cyapa_tapclick_min_ticks &&
-		    sc->poll_ticks - sc->finger2_ticks <
-		    cyapa_tapclick_max_ticks) {
-			sc->tft_ticks = -1;
-			sc->tft_state = T_IDLE;
-			is_double_down = 1;
-		}
-		break;
 	}
 
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
