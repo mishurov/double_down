@@ -283,10 +283,6 @@ static int cyapa_enable_twofingertap = 0;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_enable_twofingertap, CTLFLAG_RW,
 	    &cyapa_enable_twofingertap, 0,
 	    "Enable two finger tap to right button click");
-static int cyapa_twofingertap_wait_ticks = 8;
-SYSCTL_INT(_debug, OID_AUTO, cyapa_twofingertap_wait_ticks, CTLFLAG_RW,
-	    &cyapa_twofingertap_wait_ticks, 0,
-	    "Wait for random sequence of 0-1-2-1-0 touches");
 static int cyapa_enable_tapdrag = 0;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_enable_tapdrag, CTLFLAG_RW,
 	    &cyapa_enable_tapdrag, 0,
@@ -1537,7 +1533,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			break;
 		case T_ONE:
 			if (sc->poll_ticks - sc->tft_ticks >
-			    cyapa_twofingertap_wait_ticks || afingers == 0 ||
+			    cyapa_tapclick_max_ticks || afingers == 0 ||
 			    sc->delta_z != 0) {
 				sc->tft_ticks = -1;
 				sc->tft_state = T_IDLE;
@@ -1547,14 +1543,12 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			break;
 		case T_TWO:
 			if (sc->poll_ticks - sc->tft_ticks >
-			    cyapa_twofingertap_wait_ticks || sc->delta_z != 0) {
+			    cyapa_tapclick_max_ticks || sc->delta_z != 0) {
 				sc->tft_ticks = -1;
 				sc->tft_state = T_IDLE;
 			} else if (deltafingers < 0 && afingers == 0 &&
 			    sc->track_z == -1 && sc->poll_ticks -
-			    sc->finger2_ticks >= cyapa_tapclick_min_ticks &&
-			    sc->poll_ticks - sc->finger2_ticks <
-			    cyapa_tapclick_max_ticks) {
+			    sc->tft_ticks >= cyapa_tapclick_min_ticks) {
 				sc->tft_ticks = -1;
 				sc->tft_state = T_IDLE;
 				is_double_down = 1;

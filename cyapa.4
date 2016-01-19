@@ -139,9 +139,6 @@ Size of bottom thumb area in percent, the default is 15.
 Enable two fingers tap for right click, the default is 0.
 .It Va debug.cyapa_enable_tapdrag
 Enable tap'n'drag gesture, the default is 0.
-.It Va debug.cyapa_twofingertap_wait_ticks
-Because it's hard to tap with two fingers in exact same moment, there's some
-time range for random sequence of 0-1-2-1-0 touches, the default is 8.
 .It Va debug.cyapa_tapdrag_wait_ticks
 Time range to lock button and wait second touch to start drag or release button
 as it usual tap to click, the default is 15.
@@ -149,7 +146,7 @@ as it usual tap to click, the default is 15.
 Time range after stop moving fingers while dragging and release button,
 the default is 20.
 .It Va debug.cyapa_tapdrag_doubleclick_ticks
-Duration when second finger release can send double click instead of stop drag,
+Duration when second tap can send double click instead of start/stop drag,
 the default is 30.
 .It Va debug.cyapa_debug
 Setting this to a non-zero value enables debug output to console and syslog,
