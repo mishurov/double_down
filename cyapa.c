@@ -1514,7 +1514,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	 * Double down
 	 * Because it's hard every time touch and release fingers
 	 * in exact same moment, there's some time range to detect
-	 * random secuence of 0-1-2-1-0 touches and treat'em as
+	 * random secuence of 0-1-2-1-0 touches and interpret them as
 	 * right click then make some additional checks to
 	 * don't confuse touches with two finger scroll
 	 */
