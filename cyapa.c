@@ -279,10 +279,6 @@ SYSCTL_INT(_debug, OID_AUTO, cyapa_thumbarea_percent, CTLFLAG_RW,
 	    &cyapa_thumbarea_percent, 0,
 	    "Size of bottom thumb area in percent");
 
-static int cyapa_enable_twofingertap = 0;
-SYSCTL_INT(_debug, OID_AUTO, cyapa_enable_twofingertap, CTLFLAG_RW,
-	    &cyapa_enable_twofingertap, 0,
-	    "Enable two finger tap to right button click");
 static int cyapa_enable_tapdrag = 0;
 SYSCTL_INT(_debug, OID_AUTO, cyapa_enable_tapdrag, CTLFLAG_RW,
 	    &cyapa_enable_tapdrag, 0,
@@ -1510,14 +1506,13 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	 * Double down
 	 * Because it's hard every time touch and release fingers
 	 * in exact same moment, there's some time range to detect
-	 * random secuence of 0-1-2-1-0 touches and interpret them as
+	 * random sequence of 0-1-2-1-0 touches and interpret them as
 	 * right click then make some additional checks to
 	 * don't confuse touches with two finger scroll
 	 */
+	int is_tapclick = 0;
 
-	int is_double_down = 0;
-
-	if (cyapa_enable_twofingertap) {
+	if (cyapa_enable_tapclick == 4) {
 		switch(sc->tft_state) {
 		case T_IDLE:
 			if (deltafingers > 0 && sc->track_z == -1 &&
@@ -1551,20 +1546,21 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			    sc->tft_ticks >= cyapa_tapclick_min_ticks) {
 				sc->tft_ticks = -1;
 				sc->tft_state = T_IDLE;
-				is_double_down = 1;
+				is_tapclick = 2;
 			}
 			break;
 		}
 	}
 
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
-	int is_tapclick = (cyapa_enable_tapclick && deltafingers == -1 &&
+	if (cyapa_enable_tapclick && is_tapclick == 0 && deltafingers == -1 &&
 	    afingers == 0 && sc->poll_ticks - sc->finger1_ticks
-	    >= cyapa_tapclick_min_ticks &&
-	    sc->poll_ticks - sc->finger1_ticks < cyapa_tapclick_max_ticks);
+	    >= cyapa_tapclick_min_ticks && sc->poll_ticks - sc->finger1_ticks 
+	    < cyapa_tapclick_max_ticks)
+		is_tapclick = 1;
 
-	if (regs->fngr & CYAPA_FNGR_LEFT || is_tapclick || is_double_down ) {
-		if (is_double_down) {
+	if (regs->fngr & CYAPA_FNGR_LEFT || is_tapclick) {
+		if (is_tapclick == 2) {
 			but = CYAPA_FNGR_RIGHT;
                 } else if (sc->track_but) {
 			but = sc->track_but;
@@ -1575,12 +1571,13 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 				but = CYAPA_FNGR_MIDDLE;
 			else
 				but = CYAPA_FNGR_RIGHT;
-		} else if (is_tapclick) {
+		} else if (is_tapclick == 1) {
 			if (click_x < sc->cap_resx * 2 / 3 ||
 			    cyapa_enable_tapclick < 2)
 				but = CYAPA_FNGR_LEFT;
 			else if (click_y < sc->cap_resy / 2 &&
-			    cyapa_enable_tapclick > 2)
+			    cyapa_enable_tapclick > 2 &&
+			    cyapa_enable_tapclick != 4)
 				but = CYAPA_FNGR_MIDDLE;
 			else
 				but = CYAPA_FNGR_RIGHT;
@@ -1628,7 +1625,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		case D_WAIT:
 			if (sc->poll_ticks - sc->dragwait_ticks >
 			    cyapa_tapdrag_wait_ticks || sc->delta_z != 0 ||
-			    deltafingers > 1) {
+			    deltafingers > 2) {
 				sc->dragwait_ticks = -1;
 				sc->send_but = 0;
 				sc->drag_state = D_IDLE;

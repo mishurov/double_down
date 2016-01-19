@@ -121,6 +121,9 @@ Tap to click generates mouse button events as if the physical button was
 pressed (see
 .Sx DESCRIPTION
 above).
+.It 4
+One finger tap generates a left mouse button event. Two finger tap
+generates a right mouse button event.
 .El
 .It Va debug.cyapa_tapclick_min_ticks
 Minimum tap duration in ticks to create a click, the default is 1.
@@ -135,8 +138,6 @@ Ticks while preventing cursor movement on single finger after scroll,
 the default is 15.
 .It Va debug.cyapa_thumbarea_percent
 Size of bottom thumb area in percent, the default is 15.
-.It Va debug.cyapa_enable_twofingertap
-Enable two fingers tap for right click, the default is 0.
 .It Va debug.cyapa_enable_tapdrag
 Enable tap'n'drag gesture, the default is 0.
 .It Va debug.cyapa_tapdrag_wait_ticks
