@@ -1555,14 +1555,14 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
 	if (cyapa_enable_tapclick && is_tapclick == 0 && deltafingers == -1 &&
 	    afingers == 0 && sc->poll_ticks - sc->finger1_ticks
-	    >= cyapa_tapclick_min_ticks && sc->poll_ticks - sc->finger1_ticks 
+	    >= cyapa_tapclick_min_ticks && sc->poll_ticks - sc->finger1_ticks
 	    < cyapa_tapclick_max_ticks)
 		is_tapclick = 1;
 
 	if (regs->fngr & CYAPA_FNGR_LEFT || is_tapclick) {
 		if (is_tapclick == 2) {
 			but = CYAPA_FNGR_RIGHT;
-                } else if (sc->track_but) {
+		} else if (sc->track_but) {
 			but = sc->track_but;
 		} else if (afingers == 1) {
 			if (click_x < sc->cap_resx * 2 / 3)
@@ -1573,11 +1573,11 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 				but = CYAPA_FNGR_RIGHT;
 		} else if (is_tapclick == 1) {
 			if (click_x < sc->cap_resx * 2 / 3 ||
-			    cyapa_enable_tapclick < 2)
+			    cyapa_enable_tapclick < 2 ||
+			    cyapa_enable_tapclick == 4)
 				but = CYAPA_FNGR_LEFT;
 			else if (click_y < sc->cap_resy / 2 &&
-			    cyapa_enable_tapclick > 2 &&
-			    cyapa_enable_tapclick != 4)
+			    cyapa_enable_tapclick > 2)
 				but = CYAPA_FNGR_MIDDLE;
 			else
 				but = CYAPA_FNGR_RIGHT;
