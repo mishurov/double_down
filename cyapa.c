@@ -1603,9 +1603,12 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			but = sc->send_but;
 			sc->send_but = 0;
 		}
+		/* User can lock any button only with left button mouse */
 		if ((sc->drag_state == D_WAIT || sc->drag_state == D_DRAG) &&
-		    (sc->poll_ticks - sc->dragwait_ticks <=
-		    cyapa_tapdrag_doubleclick_ticks && but != 0)) {
+		    ((sc->poll_ticks - sc->dragwait_ticks <=
+		    cyapa_tapdrag_doubleclick_ticks && but ==
+		    CYAPA_FNGR_LEFT) || (but == CYAPA_FNGR_RIGHT ||
+		    but == CYAPA_FNGR_MIDDLE))) {
 			sc->draglock_ticks = -1;
 			sc->dragwait_ticks = -1;
 			sc->send_but = but;
@@ -1616,7 +1619,8 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 		/* Handle particular states */
 		switch(sc->drag_state) {
 		case D_IDLE:
-			if (but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT) {
+			if (but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT ||
+			    but == CYAPA_FNGR_MIDDLE) {
 				sc->send_but = but;
 				sc->dragwait_ticks = sc->poll_ticks;
 				sc->drag_state = D_WAIT;
@@ -1624,8 +1628,7 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 			break;
 		case D_WAIT:
 			if (sc->poll_ticks - sc->dragwait_ticks >
-			    cyapa_tapdrag_wait_ticks || sc->delta_z != 0 ||
-			    deltafingers > 2) {
+			    cyapa_tapdrag_wait_ticks || sc->delta_z != 0) {
 				sc->dragwait_ticks = -1;
 				sc->send_but = 0;
 				sc->drag_state = D_IDLE;
