@@ -87,9 +87,9 @@ The upper right corner issues a MIDDLE button event.
 The lower right corner issues a RIGHT button.
 Optionally, tap to click can be enabled (see below).
 .It Va Two finger tap
-Use two fingers tap for right click.
-.It Va Tap-n-drag
-Drag through short touching and holding down the finger on the touchpad.
+Use two finger tap for right click.
+.It Va Tap and drag
+Drag through short touching and holding down a finger on a touchpad.
 .El
 .Sh SYSCTL VARIABLES
 These
@@ -139,17 +139,19 @@ the default is 15.
 .It Va debug.cyapa_thumbarea_percent
 Size of bottom thumb area in percent, the default is 15.
 .It Va debug.cyapa_enable_tapdrag
-Enable tap'n'drag gesture, first tap can be any button, but on second touch
-only left button can lock first tap's button for dragging, the default is 0.
+Enable "tap and drag" gesture. First tap can be any button, second touch
+can be only left button to lock first tap's button for dragging,
+the default is 0.
 .It Va debug.cyapa_tapdrag_wait_ticks
-Time range to lock button and wait second touch to start drag or release button
-as it usual tap to click, the default is 15.
+Ticks range to lock button and wait for second touch to start dragging or
+when time is out, release button like usual "tap to click" behaviour,
+the default is 15.
 .It Va debug.cyapa_tapdrag_stick_ticks
-Time range after stop moving fingers while dragging and release button,
-the default is 20.
+Ticks range in drag mode after movings have finished and before sending button
+release event, the default is 20.
 .It Va debug.cyapa_tapdrag_doubleclick_ticks
-Duration when second tap can send double click instead of start/stop drag,
-the default is 30.
+Duration when second tap can send double click instead of start or stop
+draggig, the default is 30.
 .It Va debug.cyapa_debug
 Setting this to a non-zero value enables debug output to console and syslog,
 the default is 0.

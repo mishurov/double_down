@@ -90,10 +90,10 @@ __FBSDID("$FreeBSD$");
  *                          event. Optional tap support can be enabled
  *                          and configured using sysctl.
  *
- * Two finger tap         - Use two fingers tap for right click.
+ * Two finger tap         - Use two finger tap for right click.
  *
  * Tap and drag           - Drag through short touching and holding
- *                          down the finger on the touchpad.
+ *                          down a finger on a touchpad.
  *
  *                              WARNINGS
  *
