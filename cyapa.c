@@ -191,9 +191,9 @@ struct cyapa_softc {
 	int	finger3_ticks;
 	uint16_t reported_but;
 
-        enum	{T_IDLE, T_ONE, T_TWO} tft_state;
+	enum	{T_IDLE, T_ONE, T_TWO} tft_state;
 	int	tft_ticks;
-        enum	{D_IDLE, D_WAIT, D_DRAG, D_SEND} drag_state;
+	enum	{D_IDLE, D_WAIT, D_DRAG, D_SEND} drag_state;
 	int	dragwait_ticks;
 	int	draglock_ticks;
 	uint16_t send_but;
@@ -1592,9 +1592,10 @@ cyapa_raw_input(struct cyapa_softc *sc, struct cyapa_regs *regs, int freq)
 	 * Drag n Lock
 	 * Finit-state machine states (sc->drag_state):
 	 * IDLE - idle mode, waits any event
-	 * WAIT - locks button and waits for second tap / release if timeout
-	 * DRAG - locks button and drags
-	 * SEND - sends double click sequence (if double click instead drag)
+	 * WAIT - locks button and waits for second tap, releases if timeout
+	 * DRAG - locks button and drags, releases if moves stopped or finger up
+	 * SEND - sends double click sequence if double click instead drag
+	 * In WAIT or DRAG mode double click could be sent if touch and release
 	 */
 
 	if (cyapa_enable_tapdrag) {
