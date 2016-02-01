@@ -10,6 +10,6 @@ SRCS=	smbus_if.h bus_if.h device_if.h vnode_if.h \
 	cyapa.h cyapa.c 
 
 
-#.include "${KMODIR}/bsd.kmod.mk"
+#.include "${KMODDIR}/bsd.kmod.mk"
 .include <bsd.kmod.mk>
 
