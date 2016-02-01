@@ -557,7 +557,7 @@ cyapa_attach(device_t dev)
 	sc->drag_state = D_IDLE;
 	sc->draglock_ticks = -1;
 	sc->dragwait_ticks = -1;
-	sc->tft_state = D_IDLE;
+	sc->tft_state = T_IDLE;
 	sc->tft_ticks = -1;
 	sc->send_but = 0;
 
