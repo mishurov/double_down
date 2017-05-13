@@ -1,5 +1,5 @@
 ## Double Down
-![Automata](http://mishurov.000webhostapp.com/github/cyapa/automata.png)
+![Automata](http://mishurov.usite.pro/github/cyapa/automata.png)
 <br/>
 Cypress i2c Touchpad FreeBSD kernel module (fork).
 ### Fork features
