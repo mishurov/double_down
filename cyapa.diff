@@ -1,0 +1,369 @@
+--- /usr/src/sys/dev/cyapa/cyapa.c	2016-01-26 20:34:59.420361000 +0300
++++ /usr/src/sys/dev/cyapa/cyapa.c	2016-01-26 20:41:47.546138000 +0300
+@@ -3,7 +3,8 @@ 
+  *
+  * This code is derived from software contributed to The DragonFly Project
+  * by Matthew Dillon <dillon@backplane.com> and was subsequently ported,
+- * modified and enhanced for FreeBSD by Michael Gmelin <freebsd@grem.de>.
++ * modified and enhanced for FreeBSD by Michael Gmelin <freebsd@grem.de>,
++ * commonly used gestures added by Alexander Mishurov <ammishurov@gmail.com>.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+@@ -34,7 +35,7 @@ 
+  */
+ 
+ #include <sys/cdefs.h>
+-__FBSDID("$FreeBSD: head/sys/dev/cyapa/cyapa.c 286918 2015-08-19 09:49:29Z grembo $");
++__FBSDID("$FreeBSD$");
+ 
+ /*
+  * CYAPA - Cypress APA trackpad with I2C Interface driver
+@@ -89,6 +90,11 @@ 
+  *                          event. Optional tap support can be enabled
+  *                          and configured using sysctl.
+  *
++ * Two finger tap         - Use two finger tap for right click.
++ *
++ * Tap and drag           - Drag through short touching and holding
++ *                          down a finger on a touchpad.
++ *
+  *                              WARNINGS
+  *
+  * These trackpads get confused when three or more fingers are down on the
+@@ -185,6 +191,13 @@ 
+ 	int	finger3_ticks;
+ 	uint16_t reported_but;
+ 
++	enum	{T_IDLE, T_ONE, T_TWO} tft_state;
++	int	tft_ticks;
++	enum	{D_IDLE, D_WAIT, D_DRAG, D_SEND} drag_state;
++	int	dragwait_ticks;
++	int	draglock_ticks;
++	uint16_t send_but;
++
+ 	struct cyapa_fifo rfifo;	/* device->host */
+ 	struct cyapa_fifo wfifo;	/* host->device */
+ 	uint8_t	ps2_cmd;		/* active p2_cmd waiting for data */
+@@ -266,6 +279,23 @@ 
+ 	    &cyapa_thumbarea_percent, 0,
+ 	    "Size of bottom thumb area in percent");
+ 
++static int cyapa_enable_tapdrag = 0;
++SYSCTL_INT(_debug, OID_AUTO, cyapa_enable_tapdrag, CTLFLAG_RW,
++	    &cyapa_enable_tapdrag, 0,
++	    "Enable tap'n'drag guesture");
++static int cyapa_tapdrag_wait_ticks = 15;
++SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_wait_ticks, CTLFLAG_RW,
++	    &cyapa_tapdrag_wait_ticks, 0,
++	    "Lock button and wait if it'll be a second tap to lock for drag");
++static int cyapa_tapdrag_stick_ticks = 20;
++SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_stick_ticks, CTLFLAG_RW,
++	    &cyapa_tapdrag_stick_ticks, 0,
++	    "Time to keep button locked after stopped moving while drag");
++static int cyapa_tapdrag_doubleclick_ticks = 30;
++SYSCTL_INT(_debug, OID_AUTO, cyapa_tapdrag_doubleclick_ticks, CTLFLAG_RW,
++	    &cyapa_tapdrag_doubleclick_ticks, 0,
++	    "Duration when second finger release can send double click");
++
+ static int cyapa_debug = 0;
+ SYSCTL_INT(_debug, OID_AUTO, cyapa_debug, CTLFLAG_RW,
+ 	    &cyapa_debug, 0, "Enable debugging");
+@@ -524,6 +554,13 @@ 
+ 	sc->mode.level = 0;
+ 	sc->mode.packetsize = MOUSE_PS2_PACKETSIZE;
+ 
++	sc->drag_state = D_IDLE;
++	sc->draglock_ticks = -1;
++	sc->dragwait_ticks = -1;
++	sc->tft_state = T_IDLE;
++	sc->tft_ticks = -1;
++	sc->send_but = 0;
++
+ 	/* Setup input event tracking */
+ 	cyapa_set_power_mode(sc, CMD_POWER_MODE_IDLE);
+ 
+@@ -536,6 +573,7 @@ 
+ 
+ 	sc->devnode->si_drv1 = sc;
+ 
++
+ 	return (0);
+ }
+ 
+@@ -1256,8 +1294,7 @@ 
+ 	int x;
+ 	int y;
+ 	int z;
+-	int newfinger;
+-	int lessfingers;
++	int deltafingers;
+ 	int click_x;
+ 	int click_y;
+ 	uint16_t but;	/* high bits used for simulated but4/but5 */
+@@ -1341,8 +1378,7 @@ 
+ 			sc->finger3_ticks = sc->poll_ticks;
+ 		break;
+ 	}
+-	newfinger = sc->track_nfingers < afingers;
+-	lessfingers = sc->track_nfingers > afingers;
++	deltafingers = afingers - sc->track_nfingers;
+ 	sc->track_nfingers = afingers;
+ 
+ 	/*
+@@ -1392,15 +1428,15 @@ 
+ 			sc->track_id = regs->touch[i].id;
+ 		}
+ 		else if ((sc->track_but ||
+-		     CYAPA_TOUCH_Y(regs, i) >= thumbarea_begin) &&
+-		    newfinger && afingers == 2) {
++		    CYAPA_TOUCH_Y(regs, i) >= thumbarea_begin) &&
++		    deltafingers > 0 && afingers == 2) {
+ 			j = regs->touch[0].id == sc->track_id ? 1 : 0;
+ 			if (CYAPA_TOUCH_Y(regs, j) < thumbarea_begin) {
+-			    i = j;
+-			    sc->track_x = -1;
+-			    sc->track_y = -1;
+-			    sc->track_z = -1;
+-			    sc->track_id = regs->touch[i].id;
++				i = j;
++				sc->track_x = -1;
++				sc->track_y = -1;
++				sc->track_z = -1;
++				sc->track_id = regs->touch[i].id;
+ 			}
+ 		}
+ 	}
+@@ -1466,14 +1502,67 @@ 
+ 		sc->track_y = y;
+ 	}
+ 
++	/*
++	 * Double down
++	 * Because it's hard every time touch and release fingers
++	 * in exact same moment, there's some time range to detect
++	 * random sequence of 0-1-2-1-0 touches and interpret them as
++	 * right click then make some additional checks to
++	 * don't confuse touches with two finger scroll
++	 */
++	int is_tapclick = 0;
++
++	if (cyapa_enable_tapclick == 4) {
++		switch(sc->tft_state) {
++		case T_IDLE:
++			if (deltafingers > 0 && sc->track_z == -1 &&
++			    sc->delta_z == 0) {
++				if (deltafingers == 1 && afingers == 1) {
++					sc->tft_ticks = sc->poll_ticks;
++					sc->tft_state = T_ONE;
++				} else if (deltafingers == 2 && afingers == 2) {
++					sc->tft_ticks = sc->poll_ticks;
++					sc->tft_state = T_TWO;
++				}
++			}
++			break;
++		case T_ONE:
++			if (sc->poll_ticks - sc->tft_ticks >
++			    cyapa_tapclick_max_ticks || afingers == 0 ||
++			    sc->delta_z != 0) {
++				sc->tft_ticks = -1;
++				sc->tft_state = T_IDLE;
++			} else if (deltafingers == 1 && afingers == 2) {
++				sc->tft_state = T_TWO;
++			}
++			break;
++		case T_TWO:
++			if (sc->poll_ticks - sc->tft_ticks >
++			    cyapa_tapclick_max_ticks || sc->delta_z != 0) {
++				sc->tft_ticks = -1;
++				sc->tft_state = T_IDLE;
++			} else if (deltafingers < 0 && afingers == 0 &&
++			    sc->track_z == -1 && sc->poll_ticks -
++			    sc->tft_ticks >= cyapa_tapclick_min_ticks) {
++				sc->tft_ticks = -1;
++				sc->tft_state = T_IDLE;
++				is_tapclick = 2;
++			}
++			break;
++		}
++	}
++
+ 	/* Select finger (L = 2/3x, M = 1/3u, R = 1/3d) */
+-	int is_tapclick = (cyapa_enable_tapclick && lessfingers &&
++	if (cyapa_enable_tapclick && is_tapclick == 0 && deltafingers == -1 &&
+ 	    afingers == 0 && sc->poll_ticks - sc->finger1_ticks
+-	    >= cyapa_tapclick_min_ticks &&
+-	    sc->poll_ticks - sc->finger1_ticks < cyapa_tapclick_max_ticks);
++	    >= cyapa_tapclick_min_ticks && sc->poll_ticks - sc->finger1_ticks
++	    < cyapa_tapclick_max_ticks)
++		is_tapclick = 1;
+ 
+ 	if (regs->fngr & CYAPA_FNGR_LEFT || is_tapclick) {
+-		if (sc->track_but) {
++		if (is_tapclick == 2) {
++			but = CYAPA_FNGR_RIGHT;
++		} else if (sc->track_but) {
+ 			but = sc->track_but;
+ 		} else if (afingers == 1) {
+ 			if (click_x < sc->cap_resx * 2 / 3)
+@@ -1482,9 +1571,10 @@ 
+ 				but = CYAPA_FNGR_MIDDLE;
+ 			else
+ 				but = CYAPA_FNGR_RIGHT;
+-		} else if (is_tapclick) {
++		} else if (is_tapclick == 1) {
+ 			if (click_x < sc->cap_resx * 2 / 3 ||
+-			    cyapa_enable_tapclick < 2)
++			    cyapa_enable_tapclick < 2 ||
++			    cyapa_enable_tapclick == 4)
+ 				but = CYAPA_FNGR_LEFT;
+ 			else if (click_y < sc->cap_resy / 2 &&
+ 			    cyapa_enable_tapclick > 2)
+@@ -1499,12 +1589,86 @@ 
+ 	}
+ 
+ 	/*
++	 * Drag n Lock
++	 * Finit-state machine states (sc->drag_state):
++	 * IDLE - idle mode, waits any event
++	 * WAIT - locks button and waits for second tap, releases if timeout
++	 * DRAG - locks button and drags, releases if moves stopped or finger up
++	 * SEND - sends double click sequence if double click instead drag
++	 * In WAIT or DRAG mode double click could be sent if touch and release
++	 */
++
++	if (cyapa_enable_tapdrag) {
++		/* Handle double click the same way in two states */
++		if (sc->drag_state == D_SEND) {
++			but = sc->send_but;
++			sc->send_but = 0;
++		}
++		/* User can lock any button only with left button mouse */
++		if ((sc->drag_state == D_WAIT || sc->drag_state == D_DRAG) &&
++		    ((sc->poll_ticks - sc->dragwait_ticks <=
++		    cyapa_tapdrag_doubleclick_ticks && but ==
++		    CYAPA_FNGR_LEFT) || (but == CYAPA_FNGR_RIGHT ||
++		    but == CYAPA_FNGR_MIDDLE))) {
++			sc->draglock_ticks = -1;
++			sc->dragwait_ticks = -1;
++			sc->send_but = but;
++			sc->drag_state = D_SEND;
++			but = 0;
++		}
++
++		/* Handle particular states */
++		switch(sc->drag_state) {
++		case D_IDLE:
++			if (but == CYAPA_FNGR_LEFT || but == CYAPA_FNGR_RIGHT ||
++			    but == CYAPA_FNGR_MIDDLE) {
++				sc->send_but = but;
++				sc->dragwait_ticks = sc->poll_ticks;
++				sc->drag_state = D_WAIT;
++			}
++			break;
++		case D_WAIT:
++			if (sc->poll_ticks - sc->dragwait_ticks >
++			    cyapa_tapdrag_wait_ticks || sc->delta_z != 0) {
++				sc->dragwait_ticks = -1;
++				sc->send_but = 0;
++				sc->drag_state = D_IDLE;
++			} else if (deltafingers == 1 && afingers == 1) {
++				sc->draglock_ticks = sc->poll_ticks;
++				sc->drag_state = D_DRAG;
++				but = sc->send_but;
++			} else {
++				but = sc->send_but;
++			}
++			break;
++		case D_DRAG:
++			if (sc->poll_ticks - sc->draglock_ticks >
++			    cyapa_tapdrag_stick_ticks || deltafingers < 0 ||
++			    sc->delta_z != 0) {
++				sc->dragwait_ticks = -1;
++				sc->draglock_ticks = -1;
++				sc->send_but = 0;
++				sc->drag_state = D_IDLE;
++			} else {
++				if (sc->delta_x || sc->delta_y)
++					sc->draglock_ticks = sc->poll_ticks;
++				but = sc->send_but;
++			}
++			break;
++		case D_SEND:
++			if (sc->send_but == 0)
++				sc->drag_state = D_IDLE;
++			break;
++		}
++	}
++
++	/*
+ 	 * Detect state change from last reported state and
+ 	 * determine if we have gone idle.
+ 	 */
+ 	sc->track_but = but;
+-	if (sc->delta_x || sc->delta_y || sc->delta_z ||
+-	    sc->track_but != sc->reported_but) {
++	if (sc->delta_z || sc->delta_y || sc->delta_x ||
++	    sc->track_but != sc->reported_but || sc->send_but != 0) {
+ 		sc->active_tick = ticks;
+ 		if (sc->remote_mode == 0 && sc->reporting_mode)
+ 			sc->data_signal = 1;
+--- /usr/src/share/man/man4/cyapa.4	2016-01-26 20:34:59.422782000 +0300
++++ /usr/src/share/man/man4/cyapa.4	2016-01-26 20:41:47.548342000 +0300
+@@ -1,4 +1,5 @@ 
+ .\" Copyright (c) 2015 Michael Gmelin <freebsd@grem.de>
++.\" Copyright (c) 2016 Alexander Mishurov <ammishurov@gmail.com>
+ .\" All rights reserved.
+ .\"
+ .\" Redistribution and use in source and binary forms, with or without
+@@ -22,7 +23,7 @@ 
+ .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ .\" SUCH DAMAGE.
+ .\"
+-.\" $FreeBSD: head/share/man/man4/cyapa.4 285876 2015-07-25 18:14:35Z grembo $
++.\" $FreeBSD$
+ .\"
+ .Dd July 25, 2015
+ .Dt CYAPA 4
+@@ -85,6 +86,10 @@ 
+ The upper right corner issues a MIDDLE button event.
+ The lower right corner issues a RIGHT button.
+ Optionally, tap to click can be enabled (see below).
++.It Va Two finger tap
++Use two finger tap for right click.
++.It Va Tap and drag
++Drag through short touching and holding down a finger on a touchpad.
+ .El
+ .Sh SYSCTL VARIABLES
+ These
+@@ -116,6 +121,9 @@ 
+ pressed (see
+ .Sx DESCRIPTION
+ above).
++.It 4
++One finger tap generates a left mouse button event. Two finger tap
++generates a right mouse button event.
+ .El
+ .It Va debug.cyapa_tapclick_min_ticks
+ Minimum tap duration in ticks to create a click, the default is 1.
+@@ -130,6 +138,20 @@ 
+ the default is 15.
+ .It Va debug.cyapa_thumbarea_percent
+ Size of bottom thumb area in percent, the default is 15.
++.It Va debug.cyapa_enable_tapdrag
++Enable "tap and drag" gesture. First tap can be any button, second touch
++can be only left button to lock first tap's button for dragging,
++the default is 0.
++.It Va debug.cyapa_tapdrag_wait_ticks
++Ticks range to lock button and wait for second touch to start dragging or
++when time is out, release button like usual "tap to click" behaviour,
++the default is 15.
++.It Va debug.cyapa_tapdrag_stick_ticks
++Ticks range in drag mode after movings have finished and before sending button
++release event, the default is 20.
++.It Va debug.cyapa_tapdrag_doubleclick_ticks
++Duration when second tap can send double click instead of start or stop
++draggig, the default is 30.
+ .It Va debug.cyapa_debug
+ Setting this to a non-zero value enables debug output to console and syslog,
+ the default is 0.
