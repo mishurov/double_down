@@ -1,7 +1,7 @@
 ## Cypress i2c touchpad
 ![Automata](http://mishurov.usite.pro/github/cyapa/automata.png)
 <br/>
-A patch for the kernel module of FreeBSD 10. The touchpad is installed in some models of Chromebooks, Acer C720. The patch adds a state machine which implemnts new user features.
+A patch for the FreeBSD 10 kernel module. The touchpad is installed in some models of Acer C720 Chromebook. The patch adds a state machine which implements new user features.
 
 ### Features
 * Two finger tap for right button. 
